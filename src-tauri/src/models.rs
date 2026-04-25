@@ -165,6 +165,22 @@ pub struct DrugDispenseItem {
 }
 
 // ---------------------------------------------------------------------------
+// LabResult
+// ---------------------------------------------------------------------------
+
+/// One lab result row — latest per HN per lab item code up to a given date.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LabResult {
+    pub hn: String,
+    pub lab_items_code: String,
+    pub lab_items_name: String,
+    /// Raw result string from lab_order_result column.
+    pub lab_order_result: String,
+    /// ISO date string (YYYY-MM-DD).
+    pub order_date: String,
+}
+
+// ---------------------------------------------------------------------------
 // Private parsing helpers
 // ---------------------------------------------------------------------------
 

@@ -43,6 +43,9 @@ pub fn run() {
             // ── Drug / dept lookups ──────────────────────────────────────
             cmd_lookup_drug_name,
             cmd_lookup_dept_name,
+            // ── Lab results ───────────────────────────────────────────────
+            cmd_lookup_lab_item_name,
+            cmd_get_lab_results,
             // ── Export ───────────────────────────────────────────────────
             cmd_export_excel,
             cmd_export_pdf,

@@ -124,18 +124,18 @@ function handleClick() {
     color: #163300;
 }
 
-/* Never dispensed — neutral grey */
+/* Never dispensed — soft gray-green (muted) */
 .drug-pill--never {
-    background-color: #f5f7f3;
-    border-color: rgba(14, 15, 12, 0.15);
-    color: #454745;
+    background-color: #f4fdf6;
+    border-color: #d1f3dd;
+    color: #3e6b4a;
 }
 
-/* Not yet eligible — red/soft */
+/* Not yet eligible — light gray muted */
 .drug-pill--not_yet {
-    background-color: #fde8e8;
-    border-color: rgba(208, 50, 56, 0.3);
-    color: #d03238;
+    background-color: #f3f4f6;
+    border-color: #e5e7eb;
+    color: #6b7280;
 }
 
 /* Selected state — dark near-black with green text; distinct from all status variants */

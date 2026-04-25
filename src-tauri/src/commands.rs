@@ -9,7 +9,7 @@ use sqlx::{Column, Row};
 
 use crate::config::{AppConfig, DatabaseConfig};
 use crate::db;
-use crate::models::{DispenseHistoryRecord, DrugDispenseItem, PatientRecord};
+use crate::models::{DispenseHistoryRecord, DrugDispenseItem, LabResult, PatientRecord};
 use crate::queries;
 
 // ---------------------------------------------------------------------------
@@ -418,6 +418,78 @@ pub async fn cmd_find_patient_by_id(
         }
     });
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Lab commands
+// ---------------------------------------------------------------------------
+
+/// Look up a lab item name by its lab_items_code.
+#[tauri::command]
+pub async fn cmd_lookup_lab_item_name(code: String) -> Result<String, String> {
+    let (sql, params) = queries::build_lab_item_lookup_query(&code);
+    let rows = fetch_rows(&sql, &params).await?;
+    if let Some(row) = rows.first() {
+        if let Some(serde_json::Value::String(name)) = row.get("lab_items_name") {
+            return Ok(name.clone());
+        }
+    }
+    Err(format!("ไม่พบรหัสแลป: {}", code))
+}
+
+/// Get the latest lab results for a list of HNs up to (and including) process_date.
+/// Only returns results for lab_items_code values configured in lab_rules.
+#[tauri::command]
+pub async fn cmd_get_lab_results(
+    process_date: String,
+    hn_list: Vec<String>,
+) -> Result<Vec<LabResult>, String> {
+    let app_cfg = crate::config::read_app_config().map_err(err_str)?;
+    if app_cfg.lab_rules.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let code_list: Vec<String> = app_cfg
+        .lab_rules
+        .iter()
+        .map(|r| r.lab_items_code.clone())
+        .collect();
+
+    let query = queries::build_latest_lab_results_query(&process_date, &hn_list, &code_list);
+    let (sql, params) = match query {
+        Some(q) => q,
+        None => return Ok(vec![]),
+    };
+
+    let rows = fetch_rows(&sql, &params).await?;
+    let results = rows
+        .iter()
+        .map(|row| {
+            let get_str = |key: &str| -> String {
+                row.get(key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            };
+            let lab_items_code = row
+                .get("lab_items_code")
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    _ => String::new(),
+                })
+                .unwrap_or_default();
+
+            LabResult {
+                hn: get_str("hn"),
+                lab_items_code,
+                lab_items_name: get_str("lab_items_name"),
+                lab_order_result: get_str("lab_order_result"),
+                order_date: get_str("order_date"),
+            }
+        })
+        .collect();
+    Ok(results)
 }
 
 // ---------------------------------------------------------------------------

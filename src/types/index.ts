@@ -40,9 +40,27 @@ export interface DeptConfig {
   name: string;
 }
 
+export interface LabRuleConfig {
+  lab_items_code: string;
+  lab_items_name: string;
+  threshold: number;
+  compare_gt: boolean;
+  compare_eq: boolean;
+  compare_lt: boolean;
+}
+
+export interface LabResult {
+  hn: string;
+  lab_items_code: string;
+  lab_items_name: string;
+  lab_order_result: string;
+  order_date: string;
+}
+
 export interface AppConfig {
   drugs: DrugConfig[];
   departments: DeptConfig[];
+  lab_rules: LabRuleConfig[];
 }
 
 export interface DatabaseConfig {

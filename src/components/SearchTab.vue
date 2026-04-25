@@ -13,8 +13,9 @@ import {
     Clock,
     ChevronRight,
     Calendar,
+    FlaskConical,
 } from "lucide-vue-next";
-import type { PatientRecord, DrugDispenseItem } from "../types";
+import type { PatientRecord, DrugDispenseItem, LabResult } from "../types";
 import { api } from "../api/tauri";
 import {
     parseSimpleDrugList,
@@ -40,6 +41,9 @@ const viewingPatient = ref(false);
 const hint = ref("พิมพ์ HN / เลขบัตรประชาชน / ชื่อ-นามสกุล แล้วกด Enter");
 const hintColor = ref<"muted" | "primary" | "error" | "amber">("muted");
 const processDate = ref(todayISO());
+
+// Lab results for the currently selected patient
+const patientLabResults = ref<LabResult[]>([]);
 
 // ── computed ────────────────────────────────────────────
 const searchHint = computed(() => {
@@ -211,16 +215,27 @@ async function doSearch() {
 async function selectRecord(rec: PatientRecord) {
     selectedRecord.value = rec;
     viewingPatient.value = true;
+    patientLabResults.value = [];
     emit("patient-selected", rec);
 
     // Load patient history so we can enrich not-yet items with last dispense dates.
-    // Use null to request full history (or adjust yearsBack if you want a window).
     try {
         const history = await api.getPatientHistory(rec.hn, null);
         patientHistory.value = Array.isArray(history) ? history : [];
-    } catch (err: unknown) {
-        // On error, clear history so we don't accidentally show stale data.
+    } catch {
         patientHistory.value = [];
+    }
+
+    // Load latest lab results for this patient (non-blocking)
+    if (appConfig.value.lab_rules.length > 0) {
+        try {
+            const results = await api.getLabResults(processDate.value, [
+                rec.hn,
+            ]);
+            patientLabResults.value = Array.isArray(results) ? results : [];
+        } catch {
+            patientLabResults.value = [];
+        }
     }
 }
 
@@ -234,9 +249,59 @@ function clearSearch() {
     selectedRecord.value = null;
     results.value = [];
     viewingPatient.value = false;
+    patientLabResults.value = [];
     hint.value = "พิมพ์ HN / เลขบัตรประชาชน / ชื่อ-นามสกุล แล้วกด Enter";
     hintColor.value = "muted";
 }
+
+// ── Lab result helpers ─────────────────────────────────────────────────────
+
+/**
+ * For each configured lab rule, find the latest result from patientLabResults
+ * (which is already the latest per code from the backend).
+ * Returns an array of display items — one per configured rule.
+ */
+interface LabDisplayItem {
+    lab_items_code: string;
+    lab_items_name: string;
+    result: string | null; // null = no record found
+    order_date: string | null;
+    is_abnormal: boolean;
+}
+
+const labDisplayItems = computed((): LabDisplayItem[] => {
+    return appConfig.value.lab_rules.map((rule) => {
+        const found = patientLabResults.value.find(
+            (r) => String(r.lab_items_code) === String(rule.lab_items_code),
+        );
+        if (!found) {
+            return {
+                lab_items_code: rule.lab_items_code,
+                lab_items_name: rule.lab_items_name,
+                result: null,
+                order_date: null,
+                is_abnormal: false,
+            };
+        }
+        const val = parseFloat(found.lab_order_result);
+        let is_abnormal = false;
+        if (!isNaN(val)) {
+            if (rule.compare_gt && val > rule.threshold) is_abnormal = true;
+            if (rule.compare_lt && val < rule.threshold) is_abnormal = true;
+            if (rule.compare_eq && Math.abs(val - rule.threshold) < 0.001)
+                is_abnormal = true;
+        }
+        return {
+            lab_items_code: rule.lab_items_code,
+            lab_items_name: found.lab_items_name || rule.lab_items_name,
+            result: found.lab_order_result,
+            order_date: found.order_date,
+            is_abnormal,
+        };
+    });
+});
+
+// debug helper removed
 
 function viewHistory() {
     if (selectedRecord.value) emit("view-history", selectedRecord.value);
@@ -471,7 +536,7 @@ function viewHistory() {
                     <div class="drug-section__header drug-section__header--red">
                         <div class="drug-section__title">
                             <Clock :size="13" />
-                            ยังไม่ถึงเวลาจ่ายยา
+                            ยาที่ยังไม่ถึงกำหนดจ่าย
                         </div>
                         <span
                             class="drug-section__count drug-section__count--red"
@@ -502,6 +567,44 @@ function viewHistory() {
                     class="drug-section__empty"
                 >
                     ไม่พบข้อมูลยาสมุนไพรสำหรับผู้ป่วยรายนี้
+                </div>
+            </div>
+
+            <!-- ── Lab Results Section ─────────────────────────────────── -->
+            <div
+                v-if="appConfig.lab_rules.length > 0"
+                class="patient-card__labs"
+            >
+                <div class="lab-section__header">
+                    <FlaskConical :size="13" />
+                    <span>ผลแลปล่าสุด</span>
+                </div>
+                <div class="lab-section__grid">
+                    <div
+                        v-for="item in labDisplayItems"
+                        :key="item.lab_items_code"
+                        class="lab-item"
+                        :class="{ 'lab-item--abnormal': item.is_abnormal }"
+                    >
+                        <span class="lab-item__name">{{
+                            item.lab_items_name
+                        }}</span>
+                        <span
+                            v-if="item.result !== null"
+                            class="lab-item__result"
+                            :class="{
+                                'lab-item__result--abnormal': item.is_abnormal,
+                            }"
+                        >
+                            {{ item.result }}
+                            <span class="lab-item__date"
+                                >({{ item.order_date }})</span
+                            >
+                        </span>
+                        <span v-else class="lab-item__not-found">
+                            ไม่พบการตรวจ
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -921,14 +1024,14 @@ function viewHistory() {
     border-left: 3px solid #9fe870;
 }
 .drug-section__header--gray {
-    background: #f5f7f3;
-    border: 1px solid rgba(14, 15, 12, 0.1);
-    border-left: 3px solid #868685;
+    background: #f4fdf6;
+    border: 1px solid #d1f3dd;
+    border-left: 3px solid #d1f3dd;
 }
 .drug-section__header--red {
-    background: #fde8e8;
-    border: 1px solid rgba(208, 50, 56, 0.15);
-    border-left: 3px solid #d03238;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-left: 3px solid #e5e7eb;
 }
 
 .drug-section__title {
@@ -953,10 +1056,10 @@ function viewHistory() {
     color: #163300;
 }
 .drug-section__header--gray .drug-section__title {
-    color: #454745;
+    color: #3e6b4a;
 }
 .drug-section__header--red .drug-section__title {
-    color: #d03238;
+    color: #6b7280;
 }
 
 .drug-section__count {
@@ -980,13 +1083,13 @@ function viewHistory() {
     color: #163300;
 }
 .drug-section__count--gray {
-    background: #e8ebe6;
-    color: #454745;
+    background: #d1f3dd;
+    color: #3e6b4a;
 }
 .drug-section__count--red {
-    background: #fde8e8;
-    color: #d03238;
-    border: 1px solid rgba(208, 50, 56, 0.2);
+    background: #f3f4f6;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
 }
 
 .drug-section__pills {
@@ -1080,6 +1183,100 @@ function viewHistory() {
 }
 .btn--outline:active {
     transform: scale(0.95);
+}
+
+/* ── Lab results section ──────────────────────────────────── */
+.patient-card__labs {
+    border-top: 1px solid rgba(14, 15, 12, 0.07);
+    padding: 12px 16px 14px;
+    background: #fafbf9;
+    flex-shrink: 0;
+}
+
+.lab-section__header {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #454745;
+    font-family:
+        Inter,
+        -apple-system,
+        system-ui,
+        "Segoe UI",
+        Helvetica,
+        Arial,
+        "Tahoma",
+        "TH Sarabun New",
+        sans-serif;
+    margin-bottom: 8px;
+}
+
+.lab-section__date-note {
+    font-size: 11px;
+    font-weight: 400;
+    color: #a39e98;
+    margin-left: 2px;
+}
+
+.lab-section__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #f5f7f3;
+    border: 1px solid rgba(14, 15, 12, 0.1);
+    border-radius: 9999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family:
+        Inter,
+        -apple-system,
+        system-ui,
+        "Segoe UI",
+        Helvetica,
+        Arial,
+        "Tahoma",
+        "TH Sarabun New",
+        sans-serif;
+}
+
+.lab-item--abnormal {
+    background: #fde8e8;
+    border-color: rgba(208, 50, 56, 0.25);
+}
+
+.lab-item__name {
+    color: #615d59;
+    font-weight: 500;
+}
+
+.lab-item__result {
+    font-weight: 700;
+    color: #163300;
+}
+
+.lab-item__result--abnormal {
+    color: #d03238;
+}
+
+.lab-item__date {
+    font-size: 10px;
+    font-weight: 400;
+    color: #a39e98;
+    margin-left: 2px;
+}
+
+.lab-item__not-found {
+    color: #a39e98;
+    font-size: 11px;
+    font-style: italic;
 }
 
 /* Empty state */

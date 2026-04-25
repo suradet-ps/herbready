@@ -67,9 +67,28 @@ pub struct DeptConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LabRuleConfig {
+    pub lab_items_code: String,
+    pub lab_items_name: String,
+    /// Numeric threshold for comparison
+    pub threshold: f64,
+    /// Alert when result > threshold
+    #[serde(default)]
+    pub compare_gt: bool,
+    /// Alert when result == threshold (within ±0.001)
+    #[serde(default)]
+    pub compare_eq: bool,
+    /// Alert when result < threshold
+    #[serde(default)]
+    pub compare_lt: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppConfig {
     pub drugs: Vec<DrugConfig>,
     pub departments: Vec<DeptConfig>,
+    #[serde(default)]
+    pub lab_rules: Vec<LabRuleConfig>,
 }
 
 impl Default for AppConfig {
@@ -80,6 +99,7 @@ impl Default for AppConfig {
                 code: "011".into(),
                 name: "แพทย์แผนไทย".into(),
             }],
+            lab_rules: vec![],
         }
     }
 }

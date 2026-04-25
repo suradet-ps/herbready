@@ -6,7 +6,11 @@ import type { AppConfig } from "../types";
 import { api } from "../api/tauri";
 
 // Reactive singleton
-export const appConfig = ref<AppConfig>({ drugs: [], departments: [] });
+export const appConfig = ref<AppConfig>({
+  drugs: [],
+  departments: [],
+  lab_rules: [],
+});
 
 /**
  * Load application config (drugs, departments) from Rust backend.
@@ -34,6 +38,7 @@ export async function saveAppConfig(cfg: AppConfig): Promise<void> {
       enabled: d.enabled === false ? false : true,
     })),
     departments: cfg.departments.map((d) => ({ ...d })),
+    lab_rules: (cfg.lab_rules ?? []).map((r) => ({ ...r })),
   };
 
   await api.saveAppConfig(cfgWithEnabled);

@@ -6,7 +6,7 @@
 //! The builders return `(String, Vec<String>)` where the Vec contains the
 //! parameter values in positional order.  Callers bind them via sqlx.
 
-use crate::config::DrugConfig;
+use crate::config::{DrugConfig, LabRuleConfig};
 
 // ---------------------------------------------------------------------------
 // Helper: build the icode IN(...) list literal
@@ -603,4 +603,182 @@ LIMIT 1
     );
 
     (sql, vec![id.to_string()])
+}
+
+// ---------------------------------------------------------------------------
+// Lab item name lookup
+// ---------------------------------------------------------------------------
+
+/// Returns (sql, params) to look up a lab item name by code.
+pub fn build_lab_item_lookup_query(code: &str) -> (String, Vec<String>) {
+    let sql = "SELECT lab_items_name FROM lab_items WHERE lab_items_code = ? LIMIT 1".to_string();
+    (sql, vec![code.to_string()])
+}
+
+// ---------------------------------------------------------------------------
+// Latest lab results per HN
+// ---------------------------------------------------------------------------
+
+/// Build a query that returns the latest lab result for each (hn, lab_items_code)
+/// pair, where order_date <= process_date and lab_items_code is in code_list.
+///
+/// hn_list, code_list, and process_date are all inlined as literals (no `?` params)
+/// so MySQL can optimise the IN() and DATE() comparisons correctly regardless of
+/// whether order_date is stored as DATE or DATETIME.
+pub fn build_latest_lab_results_query(
+    process_date: &str,
+    hn_list: &[String],
+    code_list: &[String],
+) -> Option<(String, Vec<String>)> {
+    if hn_list.is_empty() || code_list.is_empty() {
+        return None;
+    }
+    let hn_in = hn_list
+        .iter()
+        .map(|h| format!("'{}'", h.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+    let code_in = code_list
+        .iter()
+        .map(|c| format!("'{}'", c.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    // Escape single quotes in process_date for safe inlining
+    let pd = process_date.replace('\'', "''");
+
+    let sql = format!(
+        r#"SELECT
+            latest.hn,
+            latest.lab_items_code,
+            latest.lab_items_name,
+            latest.lab_order_result,
+            latest.order_date
+        FROM (
+            SELECT
+                h.hn,
+                o.lab_items_code,
+                i.lab_items_name,
+                o.lab_order_result,
+                DATE(h.order_date) AS order_date,
+                ROW_NUMBER() OVER (
+                    PARTITION BY h.hn, o.lab_items_code
+                    ORDER BY DATE(h.order_date) DESC, h.lab_order_number DESC
+                ) AS rn
+            FROM lab_order o
+            JOIN lab_head h  ON h.lab_order_number = o.lab_order_number
+            JOIN lab_items i ON o.lab_items_code    = i.lab_items_code
+            WHERE h.hn IN ({hn_in})
+              AND o.lab_items_code IN ({code_in})
+              AND DATE(h.order_date) <= '{pd}'
+              AND o.lab_order_result IS NOT NULL
+              AND o.lab_order_result <> ''
+              AND o.lab_order_result REGEXP '^[[:space:]]*[0-9]'
+        ) latest
+        WHERE latest.rn = 1"#,
+        hn_in = hn_in,
+        code_in = code_in,
+        pd = pd
+    );
+
+    Some((sql, vec![]))
+}
+
+pub fn build_latest_abnormal_lab_results_query(
+    process_date: &str,
+    hn_list: &[String],
+    rules: &[LabRuleConfig],
+) -> Option<(String, Vec<String>)> {
+    if hn_list.is_empty() || rules.is_empty() {
+        return None;
+    }
+
+    let hn_in = hn_list
+        .iter()
+        .map(|h| format!("'{}'", h.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let pd = process_date.replace('\'', "''");
+
+    let mut abnormal_conditions: Vec<String> = Vec::new();
+    for rule in rules {
+        let code = rule.lab_items_code.replace('\'', "''");
+        let mut comparisons: Vec<String> = Vec::new();
+
+        if rule.compare_gt {
+            comparisons.push(format!(
+                "CAST(latest.lab_order_result AS DECIMAL(10,2)) > {}",
+                rule.threshold
+            ));
+        }
+        if rule.compare_lt {
+            comparisons.push(format!(
+                "CAST(latest.lab_order_result AS DECIMAL(10,2)) < {}",
+                rule.threshold
+            ));
+        }
+        if rule.compare_eq {
+            comparisons.push(format!(
+                "ABS(CAST(latest.lab_order_result AS DECIMAL(10,3)) - {}) < 0.001",
+                rule.threshold
+            ));
+        }
+
+        if !comparisons.is_empty() {
+            abnormal_conditions.push(format!(
+                "(latest.lab_items_code = '{}' AND ({}))",
+                code,
+                comparisons.join(" OR ")
+            ));
+        }
+    }
+
+    if abnormal_conditions.is_empty() {
+        return None;
+    }
+
+    let code_in = rules
+        .iter()
+        .map(|r| format!("'{}'", r.lab_items_code.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let sql = format!(
+        r#"SELECT
+            latest.hn,
+            latest.lab_items_code,
+            latest.lab_items_name,
+            latest.lab_order_result,
+            latest.order_date
+        FROM (
+            SELECT
+                h.hn,
+                o.lab_items_code,
+                i.lab_items_name,
+                o.lab_order_result,
+                DATE(h.order_date) AS order_date,
+                ROW_NUMBER() OVER (
+                    PARTITION BY h.hn, o.lab_items_code
+                    ORDER BY DATE(h.order_date) DESC, h.lab_order_number DESC
+                ) AS rn
+            FROM lab_order o
+            JOIN lab_head h  ON h.lab_order_number = o.lab_order_number
+            JOIN lab_items i ON o.lab_items_code    = i.lab_items_code
+            WHERE h.hn IN ({hn_in})
+              AND o.lab_items_code IN ({code_in})
+              AND DATE(h.order_date) <= '{pd}'
+              AND o.lab_order_result IS NOT NULL
+              AND o.lab_order_result <> ''
+              AND o.lab_order_result REGEXP '^[[:space:]]*[0-9]'
+        ) latest
+        WHERE latest.rn = 1
+          AND ({abnormal_conditions})"#,
+        hn_in = hn_in,
+        code_in = code_in,
+        pd = pd,
+        abnormal_conditions = abnormal_conditions.join(" OR ")
+    );
+
+    Some((sql, vec![]))
 }

@@ -48,6 +48,16 @@ export const api = {
 
   getAppConfig: () => invoke<AppConfig>("cmd_get_app_config"),
 
+  // ── Lab results ────────────────────────────────────────────────────────────
+  lookupLabItemName: (code: string) =>
+    invoke<string>("cmd_lookup_lab_item_name", { code }),
+
+  getLabResults: (processDate: string, hnList: string[]) =>
+    invoke<import("../types").LabResult[]>("cmd_get_lab_results", {
+      processDate,
+      hnList,
+    }),
+
   saveAppConfig: (config: AppConfig) =>
     invoke<void>("cmd_save_app_config", { config }),
 

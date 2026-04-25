@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AppSettingsDialog — Manage drug list and departments.
+ * AppSettingsDialog — Manage drug list, departments, and lab rules.
  */
 import { ref, reactive, onMounted } from "vue";
 import {
@@ -15,8 +15,9 @@ import {
     Download,
     Eye,
     EyeOff,
+    FlaskConical,
 } from "lucide-vue-next";
-import type { DrugConfig, DeptConfig } from "../types";
+import type { DrugConfig, DeptConfig, LabRuleConfig } from "../types";
 import { api } from "../api/tauri";
 import { appConfig, saveAppConfig } from "../stores/appConfig";
 
@@ -24,7 +25,7 @@ const emit = defineEmits<{
     (e: "close"): void;
 }>();
 
-type Page = "drugs" | "depts";
+type Page = "drugs" | "depts" | "labs";
 const activePage = ref<Page>("drugs");
 const saving = ref(false);
 
@@ -49,9 +50,25 @@ const deptLookupLoading = ref(false);
 const depts = ref<DeptConfig[]>([]);
 const selectedDeptIdx = ref<number | null>(null);
 
+// Lab rule form
+const labForm = reactive<LabRuleConfig>({
+    lab_items_code: "",
+    lab_items_name: "",
+    threshold: 0,
+    compare_gt: false,
+    compare_eq: false,
+    compare_lt: false,
+});
+const thresholdInput = ref<string>("");
+const labLookupDone = ref(false);
+const labLookupLoading = ref(false);
+const labRules = ref<LabRuleConfig[]>([]);
+const selectedLabIdx = ref<number | null>(null);
+
 onMounted(() => {
     drugs.value = appConfig.value.drugs.map((d) => ({ ...d }));
     depts.value = appConfig.value.departments.map((d) => ({ ...d }));
+    labRules.value = (appConfig.value.lab_rules ?? []).map((r) => ({ ...r }));
 });
 
 // ── Drug operations ────────────────────────────────────────────────────────
@@ -205,6 +222,106 @@ function clearDeptForm() {
     selectedDeptIdx.value = null;
 }
 
+// ── Lab rule operations ────────────────────────────────────────────────────
+
+function onLabCodeInput() {
+    if (labLookupDone.value) {
+        labLookupDone.value = false;
+        labForm.lab_items_name = "";
+    }
+}
+
+async function lookupLabItemName() {
+    if (!labForm.lab_items_code.trim()) return;
+    labLookupLoading.value = true;
+    labLookupDone.value = false;
+    labForm.lab_items_name = "";
+    try {
+        const name = await api.lookupLabItemName(labForm.lab_items_code.trim());
+        labForm.lab_items_name = name;
+        labLookupDone.value = true;
+    } catch {
+        labForm.lab_items_name = "";
+        labLookupDone.value = false;
+    } finally {
+        labLookupLoading.value = false;
+    }
+}
+
+function selectLabRule(idx: number) {
+    selectedLabIdx.value = idx;
+    const r = labRules.value[idx];
+    labForm.lab_items_code = r.lab_items_code;
+    labForm.lab_items_name = r.lab_items_name;
+    thresholdInput.value = String(r.threshold);
+    labForm.compare_gt = r.compare_gt;
+    labForm.compare_eq = r.compare_eq;
+    labForm.compare_lt = r.compare_lt;
+    labLookupDone.value = true;
+}
+
+function addOrUpdateLabRule() {
+    if (!labForm.lab_items_code.trim() || !labForm.lab_items_name.trim())
+        return;
+    if (!labLookupDone.value) return;
+    if (!labForm.compare_gt && !labForm.compare_eq && !labForm.compare_lt)
+        return;
+    const entry: LabRuleConfig = {
+        lab_items_code: labForm.lab_items_code.trim(),
+        lab_items_name: labForm.lab_items_name.trim(),
+        threshold: Number(thresholdInput.value) || 0,
+        compare_gt: labForm.compare_gt,
+        compare_eq: labForm.compare_eq,
+        compare_lt: labForm.compare_lt,
+    };
+    if (selectedLabIdx.value !== null) {
+        labRules.value[selectedLabIdx.value] = entry;
+        selectedLabIdx.value = null;
+    } else {
+        // prevent duplicate codes
+        const existing = labRules.value.findIndex(
+            (r) => r.lab_items_code === entry.lab_items_code,
+        );
+        if (existing !== -1) {
+            labRules.value[existing] = entry;
+        } else {
+            labRules.value.push(entry);
+        }
+    }
+    clearLabForm();
+}
+
+function deleteLabRule(idx: number) {
+    labRules.value.splice(idx, 1);
+    if (selectedLabIdx.value === idx) clearLabForm();
+    else if (selectedLabIdx.value !== null && selectedLabIdx.value > idx) {
+        selectedLabIdx.value -= 1;
+    }
+}
+
+function clearLabForm() {
+    Object.assign(labForm, {
+        lab_items_code: "",
+        lab_items_name: "",
+        threshold: 0,
+        compare_gt: false,
+        compare_eq: false,
+        compare_lt: false,
+    });
+    thresholdInput.value = "";
+    labLookupDone.value = false;
+    selectedLabIdx.value = null;
+}
+
+/** Return a human-readable condition string for a rule */
+function ruleConditionLabel(r: LabRuleConfig): string {
+    const parts: string[] = [];
+    if (r.compare_gt) parts.push(`> ${r.threshold}`);
+    if (r.compare_eq) parts.push(`= ${r.threshold}`);
+    if (r.compare_lt) parts.push(`< ${r.threshold}`);
+    return parts.join(" หรือ ");
+}
+
 // ── Export config ──────────────────────────────────────────────────────────
 async function exportConfig() {
     try {
@@ -248,7 +365,11 @@ async function importConfig() {
 async function save() {
     saving.value = true;
     try {
-        await saveAppConfig({ drugs: drugs.value, departments: depts.value });
+        await saveAppConfig({
+            drugs: drugs.value,
+            departments: depts.value,
+            lab_rules: labRules.value,
+        });
         emit("close");
     } catch (err: unknown) {
         alert(
@@ -293,6 +414,14 @@ async function save() {
                     type="button"
                 >
                     แผนก ({{ depts.length }})
+                </button>
+                <button
+                    class="app-tab-btn"
+                    :class="{ 'app-tab-btn--active': activePage === 'labs' }"
+                    @click="activePage = 'labs'"
+                    type="button"
+                >
+                    ผลแลป ({{ labRules.length }})
                 </button>
             </div>
 
@@ -560,6 +689,187 @@ async function save() {
                                     selectedDeptIdx !== null
                                         ? "อัพเดต"
                                         : "เพิ่ม"
+                                }}
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ── Lab rules page ──────────────────────────────────────── -->
+                <template v-if="activePage === 'labs'">
+                    <!-- Lab rules list -->
+                    <div class="settings-list">
+                        <div
+                            v-for="(r, idx) in labRules"
+                            :key="r.lab_items_code"
+                            class="settings-list__item"
+                            :class="{
+                                'settings-list__item--selected':
+                                    selectedLabIdx === idx,
+                            }"
+                            @click="selectLabRule(idx)"
+                        >
+                            <div class="settings-list__main">
+                                <span class="settings-list__primary">
+                                    {{ r.lab_items_name }}
+                                    <span class="lab-code-badge">{{
+                                        r.lab_items_code
+                                    }}</span>
+                                </span>
+                                <span class="settings-list__secondary">
+                                    แจ้งเตือนเมื่อ {{ ruleConditionLabel(r) }}
+                                </span>
+                            </div>
+                            <button
+                                class="settings-list__del"
+                                @click.stop="deleteLabRule(idx)"
+                                type="button"
+                                title="ลบ"
+                            >
+                                <Trash2 :size="13" />
+                            </button>
+                        </div>
+                        <div
+                            v-if="labRules.length === 0"
+                            class="settings-list__empty"
+                        >
+                            ยังไม่มีการตั้งค่าผลแลป
+                        </div>
+                    </div>
+
+                    <!-- Lab rule form -->
+                    <div class="settings-form">
+                        <h3 class="settings-form__title">
+                            <FlaskConical
+                                :size="14"
+                                style="
+                                    display: inline;
+                                    vertical-align: middle;
+                                    margin-right: 4px;
+                                "
+                            />
+                            {{
+                                selectedLabIdx !== null
+                                    ? "แก้ไขเกณฑ์ผลแลป"
+                                    : "เพิ่มเกณฑ์ผลแลปใหม่"
+                            }}
+                        </h3>
+
+                        <!-- Lab code + lookup -->
+                        <div class="form-row">
+                            <label class="form-label">รหัสแลป</label>
+                            <div class="icode-wrap">
+                                <input
+                                    v-model="labForm.lab_items_code"
+                                    class="form-input"
+                                    type="text"
+                                    placeholder="เช่น 659"
+                                    @input="onLabCodeInput"
+                                    @keydown.enter="lookupLabItemName"
+                                />
+                                <button
+                                    class="btn btn--ghost btn--sm"
+                                    @click="lookupLabItemName"
+                                    :disabled="labLookupLoading"
+                                    type="button"
+                                    title="ค้นหาชื่อแลป"
+                                >
+                                    <Loader
+                                        v-if="labLookupLoading"
+                                        :size="12"
+                                        class="spin"
+                                    />
+                                    <Search v-else :size="12" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Lab item name (readonly, filled by lookup) -->
+                        <div class="form-row">
+                            <label class="form-label">ชื่อแลป</label>
+                            <input
+                                v-model="labForm.lab_items_name"
+                                class="form-input form-input--readonly"
+                                type="text"
+                                placeholder="กดค้นหารหัสแลปก่อน"
+                                readonly
+                            />
+                        </div>
+
+                        <!-- Threshold value -->
+                        <div class="form-row">
+                            <label class="form-label">ค่าเกณฑ์</label>
+                            <input
+                                v-model="thresholdInput"
+                                class="form-input form-input--short"
+                                type="text"
+                                placeholder="เช่น 130"
+                            />
+                        </div>
+
+                        <!-- Condition checkboxes -->
+                        <div class="form-row">
+                            <label class="form-label">แจ้งเมื่อ</label>
+                            <div class="lab-condition-group">
+                                <label class="lab-cond-check">
+                                    <input
+                                        type="checkbox"
+                                        v-model="labForm.compare_gt"
+                                    />
+                                    <span>มากกว่า (&gt;)</span>
+                                </label>
+                                <label class="lab-cond-check">
+                                    <input
+                                        type="checkbox"
+                                        v-model="labForm.compare_eq"
+                                    />
+                                    <span>เท่ากับ (=)</span>
+                                </label>
+                                <label class="lab-cond-check">
+                                    <input
+                                        type="checkbox"
+                                        v-model="labForm.compare_lt"
+                                    />
+                                    <span>น้อยกว่า (&lt;)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Hint when no condition selected -->
+                        <div
+                            v-if="
+                                labLookupDone &&
+                                !labForm.compare_gt &&
+                                !labForm.compare_eq &&
+                                !labForm.compare_lt
+                            "
+                            class="lab-cond-hint"
+                        >
+                            กรุณาเลือกเงื่อนไขอย่างน้อย 1 รายการ
+                        </div>
+
+                        <div class="form-actions">
+                            <button
+                                class="btn btn--ghost btn--sm"
+                                @click="clearLabForm"
+                                type="button"
+                            >
+                                ล้าง
+                            </button>
+                            <button
+                                class="btn btn--primary btn--sm"
+                                @click="addOrUpdateLabRule"
+                                :disabled="
+                                    !labLookupDone ||
+                                    (!labForm.compare_gt &&
+                                        !labForm.compare_eq &&
+                                        !labForm.compare_lt)
+                                "
+                                type="button"
+                            >
+                                <Plus :size="13" />
+                                {{
+                                    selectedLabIdx !== null ? "อัพเดต" : "เพิ่ม"
                                 }}
                             </button>
                         </div>
@@ -1001,5 +1311,52 @@ async function save() {
     to {
         transform: rotate(360deg);
     }
+}
+/* Lab rule styles */
+.lab-code-badge {
+    display: inline-block;
+    background: var(--bg-elevated, #e8f0e4);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    padding: 0 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+.lab-condition-group {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.lab-cond-check {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    font-family: var(--font-thai);
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.lab-cond-check input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent-primary, #9fe870);
+}
+
+.lab-cond-hint {
+    font-size: 12px;
+    color: #d03238;
+    font-family: var(--font-thai);
+    padding: 4px 0;
+}
+
+.form-input--short {
+    max-width: 120px;
 }
 </style>

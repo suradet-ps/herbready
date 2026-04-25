@@ -15,11 +15,12 @@ import {
     FileSpreadsheet,
     StopCircle,
 } from "lucide-vue-next";
-import type { PatientRecord } from "../types";
+import type { PatientRecord, LabResult } from "../types";
 import { api } from "../api/tauri";
 import { formatDateThaiShort, todayISO } from "../utils/dateHelper";
 import { hnPadded } from "../utils/drugParser";
 import DrugPanel from "./DrugPanel.vue";
+import { appConfig } from "../stores/appConfig";
 
 // ── State ─────────────────────────────────────────────────────────────────
 const processDate = ref(todayISO());
@@ -28,6 +29,9 @@ const vitalsOnDate = ref(true);
 const loadId = ref(0);
 const records = ref<PatientRecord[]>([]);
 const statsLabel = ref("");
+
+// Lab results: map from hn → LabResult[]
+const labResultsMap = ref<Map<string, LabResult[]>>(new Map());
 const searchText = ref("");
 const searchHint = ref("");
 const highlightedRow = ref<number | null>(null);
@@ -48,6 +52,7 @@ async function loadData() {
     loading.value = true;
     statsLabel.value = "";
     records.value = [];
+    labResultsMap.value = new Map();
     searchText.value = "";
     highlightedRow.value = null;
 
@@ -61,6 +66,26 @@ async function loadData() {
         records.value = rows.map((rec) => initDrugSelection(rec));
         const count = rows.length;
         statsLabel.value = `วันที่ ${formatDateThaiShort(processDate.value)}  |  พบ ${count} ราย`;
+
+        // Fetch lab results in background (non-blocking)
+        if (rows.length > 0 && appConfig.value.lab_rules.length > 0) {
+            const hnList = rows.map((r) => r.hn);
+            try {
+                const labResults = await api.getLabResults(
+                    processDate.value,
+                    hnList,
+                );
+                if (loadId.value !== myId) return;
+                const map = new Map<string, LabResult[]>();
+                for (const lr of labResults) {
+                    if (!map.has(lr.hn)) map.set(lr.hn, []);
+                    map.get(lr.hn)!.push(lr);
+                }
+                labResultsMap.value = map;
+            } catch {
+                // lab results are non-critical — silently ignore errors
+            }
+        }
     } catch (err: unknown) {
         if (loadId.value !== myId) return; // cancelled
         statsLabel.value = `❌ ${err instanceof Error ? err.message : String(err)}`;
@@ -72,7 +97,67 @@ async function loadData() {
 function cancelLoad() {
     loadId.value += 1; // invalidate in-flight
     loading.value = false;
+    labResultsMap.value = new Map();
     statsLabel.value = "⏹ ยกเลิกการประมวลผล";
+}
+
+// ── Lab helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Check if a single lab result is abnormal according to configured rules.
+ */
+function isLabAbnormal(lr: LabResult): boolean {
+    const labCode = String(lr.lab_items_code).trim();
+    const rule = appConfig.value.lab_rules.find(
+        (r) => String(r.lab_items_code).trim() === labCode,
+    );
+    if (!rule) return false;
+    const val = parseFloat(lr.lab_order_result);
+    if (isNaN(val)) return false;
+    if (rule.compare_gt && val > rule.threshold) return true;
+    if (rule.compare_lt && val < rule.threshold) return true;
+    if (rule.compare_eq && Math.abs(val - rule.threshold) < 0.001) return true;
+    return false;
+}
+
+/**
+ * Returns all abnormal lab results for a given HN.
+ */
+function abnormalLabsForHn(hn: string): LabResult[] {
+    const results = labResultsMap.value.get(hn) ?? [];
+    return results.filter(isLabAbnormal);
+}
+
+/**
+ * Build a full lab summary tooltip for any HN, showing every configured
+ * lab rule with its latest result or "ไม่พบการตรวจ" if none found.
+ */
+function labFullTooltip(hn: string): string {
+    const rules = appConfig.value.lab_rules;
+    if (rules.length === 0) return "";
+    const results = labResultsMap.value.get(hn) ?? [];
+    const lines = rules.map((rule) => {
+        const ruleCode = String(rule.lab_items_code).trim();
+        const found = results.find(
+            (r) => String(r.lab_items_code).trim() === ruleCode,
+        );
+        if (found) {
+            const val = parseFloat(found.lab_order_result);
+            let flag = "";
+            if (!isNaN(val)) {
+                if (rule.compare_gt && val > rule.threshold) flag = " ⚠️";
+                else if (rule.compare_lt && val < rule.threshold) flag = " ⚠️";
+                else if (
+                    rule.compare_eq &&
+                    Math.abs(val - rule.threshold) < 0.001
+                )
+                    flag = " ⚠️";
+            }
+            return `${rule.lab_items_name}: ${found.lab_order_result} (${found.order_date})${flag}`;
+        }
+        return `${rule.lab_items_name}: ไม่พบการตรวจ`;
+    });
+    return lines.join("\n");
 }
 
 function initDrugSelection(rec: PatientRecord): PatientRecord {
@@ -323,7 +408,18 @@ function selectedDrugCount(rec: PatientRecord): number {
                     >
                         <!-- HN -->
                         <td class="daily-table__td td--hn">
-                            {{ hnPadded(rec.hn) }}
+                            <span
+                                v-if="appConfig.lab_rules.length > 0"
+                                :class="{
+                                    'hn-abnormal-lab':
+                                        abnormalLabsForHn(rec.hn).length > 0,
+                                    'hn-has-lab': true,
+                                }"
+                                :title="labFullTooltip(rec.hn)"
+                            >
+                                {{ hnPadded(rec.hn) }}
+                            </span>
+                            <span v-else>{{ hnPadded(rec.hn) }}</span>
                         </td>
 
                         <!-- ชื่อ -->
@@ -468,6 +564,18 @@ function selectedDrugCount(rec: PatientRecord): number {
     background: #ffffff;
 }
 
+/* Lab HN styles */
+.hn-has-lab {
+    cursor: help;
+    display: inline-block;
+}
+
+.hn-abnormal-lab {
+    color: #d03238;
+    font-weight: 700;
+    border-bottom: 1.5px dashed #d03238;
+}
+
 /* Toolbar */
 .daily-tab__toolbar {
     display: flex;
@@ -520,18 +628,24 @@ function selectedDrugCount(rec: PatientRecord): number {
     border: 1px solid;
     flex-shrink: 0;
 }
+
 .daily-legend__dot--green {
     background: #e2f6d5;
     border-color: #9fe870;
 }
+
+/* Never dispensed — soft gray-green (muted) */
 .daily-legend__dot--gray {
-    background: #f5f7f3;
-    border-color: rgba(14, 15, 12, 0.15);
+    background: #f4fdf6;
+    border-color: #d1f3dd;
 }
+
+/* Not yet due — light gray muted */
 .daily-legend__dot--red {
-    background: #fde8e8;
-    border-color: rgba(208, 50, 56, 0.3);
+    background: #f3f4f6;
+    border-color: #e5e7eb;
 }
+
 .daily-legend__dot--dark {
     background: #0e0f0c;
     border-color: #0e0f0c;
