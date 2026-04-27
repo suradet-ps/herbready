@@ -83,12 +83,31 @@ pub struct LabRuleConfig {
     pub compare_lt: bool,
 }
 
+/// One herb drug entry in an interaction rule.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HerbDrugEntry {
+    pub icode: String,
+    pub name: String,
+}
+
+/// One Herb/Drug interaction rule: a modern (conventional) drug that interacts
+/// with one or more herb drugs.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HerbDrugInteraction {
+    pub modern_drug_icode: String,
+    pub modern_drug_name: String,
+    pub herb_drugs: Vec<HerbDrugEntry>,
+    pub reason: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppConfig {
     pub drugs: Vec<DrugConfig>,
     pub departments: Vec<DeptConfig>,
     #[serde(default)]
     pub lab_rules: Vec<LabRuleConfig>,
+    #[serde(default)]
+    pub herb_drug_interactions: Vec<HerbDrugInteraction>,
 }
 
 impl Default for AppConfig {
@@ -100,6 +119,7 @@ impl Default for AppConfig {
                 name: "แพทย์แผนไทย".into(),
             }],
             lab_rules: vec![],
+            herb_drug_interactions: vec![],
         }
     }
 }

@@ -181,6 +181,22 @@ pub struct LabResult {
 }
 
 // ---------------------------------------------------------------------------
+// HerbDrugInteractionAlert
+// ---------------------------------------------------------------------------
+
+/// An alert indicating a patient has an active prescription for a modern drug
+/// that interacts with the herb drugs configured in the interaction rule.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HerbDrugInteractionAlert {
+    pub hn: String,
+    pub modern_drug_icode: String,
+    pub modern_drug_name: String,
+    /// Names of the herb drugs that should NOT be co-administered.
+    pub herb_drug_names: Vec<String>,
+    pub reason: String,
+}
+
+// ---------------------------------------------------------------------------
 // Private parsing helpers
 // ---------------------------------------------------------------------------
 

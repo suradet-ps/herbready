@@ -7,6 +7,7 @@ import type {
   AppConfig,
   DatabaseConfig,
   DrugDispenseItem,
+  HerbDrugInteractionAlert,
   PatientRecord,
 } from "../types";
 
@@ -54,6 +55,12 @@ export const api = {
 
   getLabResults: (processDate: string, hnList: string[]) =>
     invoke<import("../types").LabResult[]>("cmd_get_lab_results", {
+      processDate,
+      hnList,
+    }),
+
+  checkHerbDrugInteractions: (processDate: string, hnList: string[]) =>
+    invoke<HerbDrugInteractionAlert[]>("cmd_check_herb_drug_interactions", {
       processDate,
       hnList,
     }),

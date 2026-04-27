@@ -974,3 +974,61 @@ pub async fn cmd_import_app_config(json_content: String) -> Result<AppConfig, St
     crate::config::write_app_config(&cfg).map_err(err_str)?;
     Ok(cfg)
 }
+
+/// Check for Herb/Drug interaction alerts for a list of HNs on a given date.
+///
+/// Queries `opitemrece` to find any HN that has been prescribed one of the
+/// configured modern drugs within the past year. Returns one alert per
+/// (HN, matching interaction rule) pair.
+#[tauri::command]
+pub async fn cmd_check_herb_drug_interactions(
+    process_date: String,
+    hn_list: Vec<String>,
+) -> Result<Vec<crate::models::HerbDrugInteractionAlert>, String> {
+    let app_cfg = crate::config::read_app_config().map_err(err_str)?;
+    if app_cfg.herb_drug_interactions.is_empty() || hn_list.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let query = queries::build_check_modern_drug_query(
+        &process_date,
+        &hn_list,
+        &app_cfg.herb_drug_interactions,
+    );
+    let (sql, params) = match query {
+        Some(q) => q,
+        None => return Ok(vec![]),
+    };
+
+    let rows = fetch_rows(&sql, &params).await?;
+
+    let mut alerts = Vec::new();
+    for row in &rows {
+        let hn = row
+            .get("hn")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let modern_icode = row
+            .get("modern_icode")
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+
+        for rule in &app_cfg.herb_drug_interactions {
+            if rule.modern_drug_icode.trim() == modern_icode.trim() {
+                alerts.push(crate::models::HerbDrugInteractionAlert {
+                    hn: hn.clone(),
+                    modern_drug_icode: rule.modern_drug_icode.clone(),
+                    modern_drug_name: rule.modern_drug_name.clone(),
+                    herb_drug_names: rule.herb_drugs.iter().map(|h| h.name.clone()).collect(),
+                    reason: rule.reason.clone(),
+                });
+            }
+        }
+    }
+    Ok(alerts)
+}

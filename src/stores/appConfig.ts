@@ -10,6 +10,7 @@ export const appConfig = ref<AppConfig>({
   drugs: [],
   departments: [],
   lab_rules: [],
+  herb_drug_interactions: [],
 });
 
 /**
@@ -39,6 +40,10 @@ export async function saveAppConfig(cfg: AppConfig): Promise<void> {
     })),
     departments: cfg.departments.map((d) => ({ ...d })),
     lab_rules: (cfg.lab_rules ?? []).map((r) => ({ ...r })),
+    herb_drug_interactions: (cfg.herb_drug_interactions ?? []).map((r) => ({
+      ...r,
+      herb_drugs: (r.herb_drugs ?? []).map((h) => ({ ...h })),
+    })),
   };
 
   await api.saveAppConfig(cfgWithEnabled);

@@ -46,6 +46,7 @@ pub fn run() {
             // ── Lab results ───────────────────────────────────────────────
             cmd_lookup_lab_item_name,
             cmd_get_lab_results,
+            cmd_check_herb_drug_interactions,
             // ── Export ───────────────────────────────────────────────────
             cmd_export_excel,
             cmd_export_pdf,

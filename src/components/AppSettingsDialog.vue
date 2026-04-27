@@ -16,8 +16,16 @@ import {
     Eye,
     EyeOff,
     FlaskConical,
+    Pill,
+    Leaf,
 } from "lucide-vue-next";
-import type { DrugConfig, DeptConfig, LabRuleConfig } from "../types";
+import type {
+    DrugConfig,
+    DeptConfig,
+    LabRuleConfig,
+    HerbDrugInteraction,
+    HerbDrugEntry,
+} from "../types";
 import { api } from "../api/tauri";
 import { appConfig, saveAppConfig } from "../stores/appConfig";
 
@@ -25,7 +33,7 @@ const emit = defineEmits<{
     (e: "close"): void;
 }>();
 
-type Page = "drugs" | "depts" | "labs";
+type Page = "drugs" | "depts" | "labs" | "interactions";
 const activePage = ref<Page>("drugs");
 const saving = ref(false);
 
@@ -65,10 +73,34 @@ const labLookupLoading = ref(false);
 const labRules = ref<LabRuleConfig[]>([]);
 const selectedLabIdx = ref<number | null>(null);
 
+// ── Herb/Drug interaction state ────────────────────────────────────────────
+
+/** Draft for the per-herb entries in the form (includes lookup UI state). */
+interface HerbDrugDraft {
+    icode: string;
+    name: string;
+    lookupDone: boolean;
+    lookupLoading: boolean;
+}
+
+const interactionModernIcode = ref("");
+const interactionModernName = ref("");
+const interactionModernLookupDone = ref(false);
+const interactionModernLookupLoading = ref(false);
+const interactionReason = ref("");
+const herbDrugDrafts = ref<HerbDrugDraft[]>([
+    { icode: "", name: "", lookupDone: false, lookupLoading: false },
+]);
+const interactions = ref<HerbDrugInteraction[]>([]);
+const selectedInteractionIdx = ref<number | null>(null);
+
 onMounted(() => {
     drugs.value = appConfig.value.drugs.map((d) => ({ ...d }));
     depts.value = appConfig.value.departments.map((d) => ({ ...d }));
     labRules.value = (appConfig.value.lab_rules ?? []).map((r) => ({ ...r }));
+    interactions.value = (appConfig.value.herb_drug_interactions ?? []).map(
+        (r) => ({ ...r, herb_drugs: r.herb_drugs.map((h) => ({ ...h })) }),
+    );
 });
 
 // ── Drug operations ────────────────────────────────────────────────────────
@@ -322,6 +354,159 @@ function ruleConditionLabel(r: LabRuleConfig): string {
     return parts.join(" หรือ ");
 }
 
+// ── Herb/Drug interaction operations ──────────────────────────────────────
+
+function onModernIcodeInput() {
+    if (interactionModernLookupDone.value) {
+        interactionModernLookupDone.value = false;
+        interactionModernName.value = "";
+    }
+}
+
+async function lookupModernDrugName() {
+    if (!interactionModernIcode.value.trim()) return;
+    interactionModernLookupLoading.value = true;
+    interactionModernLookupDone.value = false;
+    interactionModernName.value = "";
+    try {
+        const name = await api.lookupDrugName(
+            interactionModernIcode.value.trim(),
+        );
+        interactionModernName.value = name;
+        interactionModernLookupDone.value = true;
+    } catch {
+        interactionModernName.value = "";
+        interactionModernLookupDone.value = false;
+    } finally {
+        interactionModernLookupLoading.value = false;
+    }
+}
+
+function onHerbIcodeInput(idx: number) {
+    const draft = herbDrugDrafts.value[idx];
+    if (draft && draft.lookupDone) {
+        herbDrugDrafts.value[idx] = {
+            ...draft,
+            lookupDone: false,
+            name: "",
+        };
+    }
+}
+
+async function lookupHerbDrugName(idx: number) {
+    const draft = herbDrugDrafts.value[idx];
+    if (!draft || !draft.icode.trim()) return;
+    herbDrugDrafts.value[idx] = {
+        ...draft,
+        lookupLoading: true,
+        lookupDone: false,
+        name: "",
+    };
+    try {
+        const name = await api.lookupDrugName(draft.icode.trim());
+        herbDrugDrafts.value[idx] = {
+            ...herbDrugDrafts.value[idx],
+            name,
+            lookupDone: true,
+            lookupLoading: false,
+        };
+    } catch {
+        herbDrugDrafts.value[idx] = {
+            ...herbDrugDrafts.value[idx],
+            name: "",
+            lookupDone: false,
+            lookupLoading: false,
+        };
+    }
+}
+
+function addHerbDrugEntry() {
+    herbDrugDrafts.value.push({
+        icode: "",
+        name: "",
+        lookupDone: false,
+        lookupLoading: false,
+    });
+}
+
+function removeHerbDrugEntry(idx: number) {
+    if (herbDrugDrafts.value.length <= 1) return;
+    herbDrugDrafts.value.splice(idx, 1);
+}
+
+function selectInteraction(idx: number) {
+    selectedInteractionIdx.value = idx;
+    const r = interactions.value[idx];
+    interactionModernIcode.value = r.modern_drug_icode;
+    interactionModernName.value = r.modern_drug_name;
+    interactionModernLookupDone.value = true;
+    interactionReason.value = r.reason;
+    herbDrugDrafts.value = r.herb_drugs.map((h) => ({
+        icode: h.icode,
+        name: h.name,
+        lookupDone: true,
+        lookupLoading: false,
+    }));
+    if (herbDrugDrafts.value.length === 0) {
+        herbDrugDrafts.value = [
+            { icode: "", name: "", lookupDone: false, lookupLoading: false },
+        ];
+    }
+}
+
+function addOrUpdateInteraction() {
+    if (
+        !interactionModernIcode.value.trim() ||
+        !interactionModernName.value.trim()
+    )
+        return;
+    if (!interactionModernLookupDone.value) return;
+    const validHerbs = herbDrugDrafts.value.filter(
+        (h) => h.icode.trim() && h.name.trim() && h.lookupDone,
+    );
+    if (validHerbs.length === 0) return;
+    const herbEntries: HerbDrugEntry[] = validHerbs.map((h) => ({
+        icode: h.icode.trim(),
+        name: h.name.trim(),
+    }));
+    const entry: HerbDrugInteraction = {
+        modern_drug_icode: interactionModernIcode.value.trim(),
+        modern_drug_name: interactionModernName.value.trim(),
+        herb_drugs: herbEntries,
+        reason: interactionReason.value.trim(),
+    };
+    if (selectedInteractionIdx.value !== null) {
+        interactions.value[selectedInteractionIdx.value] = entry;
+        selectedInteractionIdx.value = null;
+    } else {
+        interactions.value.push(entry);
+    }
+    clearInteractionForm();
+}
+
+function deleteInteraction(idx: number) {
+    interactions.value.splice(idx, 1);
+    if (selectedInteractionIdx.value === idx) clearInteractionForm();
+    else if (
+        selectedInteractionIdx.value !== null &&
+        selectedInteractionIdx.value > idx
+    ) {
+        selectedInteractionIdx.value -= 1;
+    }
+}
+
+function clearInteractionForm() {
+    interactionModernIcode.value = "";
+    interactionModernName.value = "";
+    interactionModernLookupDone.value = false;
+    interactionModernLookupLoading.value = false;
+    interactionReason.value = "";
+    herbDrugDrafts.value = [
+        { icode: "", name: "", lookupDone: false, lookupLoading: false },
+    ];
+    selectedInteractionIdx.value = null;
+}
+
 // ── Export config ──────────────────────────────────────────────────────────
 async function exportConfig() {
     try {
@@ -353,6 +538,11 @@ async function importConfig() {
         const cfg = await api.importAppConfig(content);
         drugs.value = cfg.drugs.map((d) => ({ ...d }));
         depts.value = cfg.departments.map((d) => ({ ...d }));
+        labRules.value = (cfg.lab_rules ?? []).map((r) => ({ ...r }));
+        interactions.value = (cfg.herb_drug_interactions ?? []).map((r) => ({
+            ...r,
+            herb_drugs: r.herb_drugs.map((h) => ({ ...h })),
+        }));
         alert("นำเข้าข้อมูลสำเร็จ");
     } catch (err: unknown) {
         alert(
@@ -369,6 +559,7 @@ async function save() {
             drugs: drugs.value,
             departments: depts.value,
             lab_rules: labRules.value,
+            herb_drug_interactions: interactions.value,
         });
         emit("close");
     } catch (err: unknown) {
@@ -422,6 +613,16 @@ async function save() {
                     type="button"
                 >
                     ผลแลป ({{ labRules.length }})
+                </button>
+                <button
+                    class="app-tab-btn"
+                    :class="{
+                        'app-tab-btn--active': activePage === 'interactions',
+                    }"
+                    @click="activePage = 'interactions'"
+                    type="button"
+                >
+                    Herb/Drug ({{ interactions.length }})
                 </button>
             </div>
 
@@ -875,6 +1076,233 @@ async function save() {
                         </div>
                     </div>
                 </template>
+
+                <!-- ── Herb/Drug Interaction page ───────────────────────── -->
+                <template v-if="activePage === 'interactions'">
+                    <!-- List -->
+                    <div class="settings-list">
+                        <div
+                            v-for="(rule, idx) in interactions"
+                            :key="idx"
+                            class="settings-list__item"
+                            :class="{
+                                'settings-list__item--selected':
+                                    selectedInteractionIdx === idx,
+                            }"
+                            @click="selectInteraction(idx)"
+                        >
+                            <div class="settings-list__main">
+                                <span class="settings-list__primary">
+                                    {{ rule.modern_drug_name }}
+                                </span>
+                                <span class="settings-list__secondary">
+                                    ห้ามใช้ร่วมกับ:
+                                    {{
+                                        rule.herb_drugs
+                                            .map((h) => h.name)
+                                            .join(", ")
+                                    }}
+                                </span>
+                            </div>
+                            <button
+                                class="settings-list__del"
+                                @click.stop="deleteInteraction(idx)"
+                                type="button"
+                                title="ลบ"
+                            >
+                                <Trash2 :size="13" />
+                            </button>
+                        </div>
+                        <div
+                            v-if="interactions.length === 0"
+                            class="settings-list__empty"
+                        >
+                            ยังไม่มีการตั้งค่า
+                        </div>
+                    </div>
+
+                    <!-- Form -->
+                    <div class="settings-form">
+                        <h3 class="settings-form__title">
+                            {{
+                                selectedInteractionIdx !== null
+                                    ? "แก้ไข Interaction"
+                                    : "เพิ่ม Herb/Drug Interaction"
+                            }}
+                        </h3>
+
+                        <!-- Modern drug icode -->
+                        <h4 class="settings-section-heading">
+                            <Pill
+                                :size="14"
+                                style="
+                                    vertical-align: middle;
+                                    margin-right: 8px;
+                                "
+                            />ยาแผนปัจจุบัน
+                        </h4>
+                        <div class="form-row">
+                            <label class="form-label">icode</label>
+                            <div class="icode-wrap">
+                                <input
+                                    class="form-input"
+                                    v-model="interactionModernIcode"
+                                    @input="onModernIcodeInput"
+                                    @keydown.enter.prevent="
+                                        lookupModernDrugName
+                                    "
+                                    placeholder="เช่น 1490016"
+                                    type="text"
+                                />
+                                <button
+                                    class="btn btn--sm btn--ghost"
+                                    @click="lookupModernDrugName"
+                                    :disabled="
+                                        !interactionModernIcode.trim() ||
+                                        interactionModernLookupLoading
+                                    "
+                                    type="button"
+                                    title="ค้นหาชื่อยา"
+                                >
+                                    <Loader
+                                        v-if="interactionModernLookupLoading"
+                                        :size="12"
+                                        class="spin"
+                                    />
+                                    <Search v-else :size="12" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Modern drug name (readonly) -->
+                        <div class="form-row">
+                            <label class="form-label">ชื่อยา</label>
+                            <input
+                                class="form-input form-input--readonly"
+                                :value="interactionModernName"
+                                readonly
+                                placeholder="กดค้นหาเพื่อดึงชื่อยา"
+                                type="text"
+                            />
+                        </div>
+
+                        <!-- Herb drugs list -->
+                        <h4 class="settings-section-heading">
+                            <Leaf
+                                :size="14"
+                                style="
+                                    vertical-align: middle;
+                                    margin-right: 8px;
+                                "
+                            />ยาสมุนไพร
+                        </h4>
+
+                        <div
+                            v-for="(draft, hidx) in herbDrugDrafts"
+                            :key="hidx"
+                        >
+                            <div class="form-row">
+                                <label class="form-label"></label>
+                                <div class="icode-wrap">
+                                    <input
+                                        class="form-input"
+                                        v-model="draft.icode"
+                                        @input="onHerbIcodeInput(hidx)"
+                                        @keydown.enter.prevent="
+                                            lookupHerbDrugName(hidx)
+                                        "
+                                        placeholder="icode เช่น 1580004"
+                                        type="text"
+                                    />
+                                    <button
+                                        class="btn btn--sm btn--ghost"
+                                        @click="lookupHerbDrugName(hidx)"
+                                        :disabled="
+                                            !draft.icode.trim() ||
+                                            draft.lookupLoading
+                                        "
+                                        type="button"
+                                        title="ค้นหาชื่อยา"
+                                    >
+                                        <Loader
+                                            v-if="draft.lookupLoading"
+                                            :size="12"
+                                            class="spin"
+                                        />
+                                        <Search v-else :size="12" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label"></label>
+                                <input
+                                    class="form-input form-input--readonly herb-name-input"
+                                    :value="draft.name"
+                                    readonly
+                                    placeholder="กดค้นหาเพื่อดึงชื่อยา"
+                                    type="text"
+                                />
+                                <button
+                                    class="btn btn--sm settings-list__del"
+                                    @click="removeHerbDrugEntry(hidx)"
+                                    :disabled="herbDrugDrafts.length <= 1"
+                                    type="button"
+                                    title="ลบยาสมุนไพรนี้"
+                                >
+                                    <Trash2 :size="12" />
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <button
+                                class="btn btn--sm btn--ghost"
+                                @click="addHerbDrugEntry"
+                                type="button"
+                            >
+                                <Plus :size="12" />
+                                เพิ่มยาสมุนไพร
+                            </button>
+                        </div>
+
+                        <!-- Reason -->
+                        <div class="form-row">
+                            <label class="form-label">เหตุผล / คำอธิบาย</label>
+                            <textarea
+                                class="form-input form-textarea"
+                                v-model="interactionReason"
+                                placeholder="เช่น ยา A ลดประสิทธิภาพของ ยา B"
+                                rows="3"
+                            />
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="form-actions">
+                            <button
+                                class="btn btn--sm btn--ghost"
+                                @click="clearInteractionForm"
+                                type="button"
+                            >
+                                ล้างฟอร์ม
+                            </button>
+                            <button
+                                class="btn btn--sm btn--primary"
+                                @click="addOrUpdateInteraction"
+                                :disabled="
+                                    !interactionModernLookupDone ||
+                                    herbDrugDrafts.every((h) => !h.lookupDone)
+                                "
+                                type="button"
+                            >
+                                <Plus :size="13" />
+                                {{
+                                    selectedInteractionIdx !== null
+                                        ? "อัพเดต"
+                                        : "เพิ่ม"
+                                }}
+                            </button>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             <!-- Footer -->
@@ -1155,6 +1583,17 @@ async function save() {
     margin: 0 0 4px;
 }
 
+.settings-section-heading {
+    margin: 12px 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent-primary-dark);
+    font-family: var(--font-thai);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .form-row {
     display: flex;
     align-items: center;
@@ -1358,5 +1797,31 @@ async function save() {
 
 .form-input--short {
     max-width: 120px;
+}
+
+/* Herb/Drug interaction form */
+.herb-drug-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.herb-drug-row .icode-wrap {
+    flex-shrink: 0;
+    width: 170px;
+}
+
+.herb-name-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 64px;
+    width: 100%;
+    font-family: var(--font-thai);
+    line-height: 1.5;
 }
 </style>

@@ -2,6 +2,9 @@
 /**
  * SearchTab — ค้นหารายบุคคล
  * Search patient by HN / CID / name and show drug eligibility.
+ *
+ * Modified: show only one Herb/Drug interaction inline and add
+ * a "แสดงข้อมูลทั้งหมด" popup to view the rest.
  */
 import { ref, computed } from "vue";
 import {
@@ -14,8 +17,14 @@ import {
     ChevronRight,
     Calendar,
     FlaskConical,
+    AlertTriangle,
 } from "lucide-vue-next";
-import type { PatientRecord, DrugDispenseItem, LabResult } from "../types";
+import type {
+    PatientRecord,
+    DrugDispenseItem,
+    LabResult,
+    HerbDrugInteractionAlert,
+} from "../types";
 import { api } from "../api/tauri";
 import {
     parseSimpleDrugList,
@@ -44,6 +53,11 @@ const processDate = ref(todayISO());
 
 // Lab results for the currently selected patient
 const patientLabResults = ref<LabResult[]>([]);
+// Herb/Drug interaction alerts for the currently selected patient
+const patientInteractionAlerts = ref<HerbDrugInteractionAlert[]>([]);
+
+// Control showing the full-interactions popup
+const showAllInteractions = ref(false);
 
 // ── computed ────────────────────────────────────────────
 const searchHint = computed(() => {
@@ -216,6 +230,7 @@ async function selectRecord(rec: PatientRecord) {
     selectedRecord.value = rec;
     viewingPatient.value = true;
     patientLabResults.value = [];
+    patientInteractionAlerts.value = [];
     emit("patient-selected", rec);
 
     // Load patient history so we can enrich not-yet items with last dispense dates.
@@ -237,6 +252,21 @@ async function selectRecord(rec: PatientRecord) {
             patientLabResults.value = [];
         }
     }
+
+    // Load herb/drug interaction alerts for this patient (non-blocking)
+    if (appConfig.value.herb_drug_interactions.length > 0) {
+        try {
+            const alerts = await api.checkHerbDrugInteractions(
+                processDate.value,
+                [rec.hn],
+            );
+            patientInteractionAlerts.value = Array.isArray(alerts)
+                ? alerts
+                : [];
+        } catch {
+            patientInteractionAlerts.value = [];
+        }
+    }
 }
 
 function backToResults() {
@@ -250,6 +280,7 @@ function clearSearch() {
     results.value = [];
     viewingPatient.value = false;
     patientLabResults.value = [];
+    patientInteractionAlerts.value = [];
     hint.value = "พิมพ์ HN / เลขบัตรประชาชน / ชื่อ-นามสกุล แล้วกด Enter";
     hintColor.value = "muted";
 }
@@ -367,7 +398,7 @@ function viewHistory() {
             </button>
         </div>
 
-        <!-- ── Hint bar ──────────────────────────────────────── -->
+        <!-- ── Hint bar ─────────────────────────────────────── -->
         <div class="search-tab__hint" :class="`hint--${hintColor}`">
             {{ hint }}
         </div>
@@ -607,9 +638,124 @@ function viewHistory() {
                     </div>
                 </div>
             </div>
+
+            <!-- ── Herb/Drug Interaction Section ──────────────────── -->
+            <div
+                v-if="patientInteractionAlerts.length > 0"
+                class="patient-card__interactions"
+            >
+                <div class="interaction-section__header">
+                    <AlertTriangle :size="13" />
+                    <span>
+                        Herb/Drug Interaction
+                        <span v-if="patientInteractionAlerts.length > 1">
+                            ({{ patientInteractionAlerts.length }})</span
+                        >
+                    </span>
+                    <button
+                        v-if="patientInteractionAlerts.length > 1"
+                        class="btn btn--outline btn--sm btn--danger"
+                        @click="showAllInteractions = true"
+                        type="button"
+                        title="แสดงรายการทั้งหมด"
+                    >
+                        แสดงข้อมูลทั้งหมด
+                    </button>
+                </div>
+                <div class="interaction-section__list">
+                    <!-- show only first alert card here (one row) -->
+                    <div
+                        v-for="(alert, idx) in patientInteractionAlerts.slice(
+                            0,
+                            1,
+                        )"
+                        :key="idx"
+                        class="interaction-item"
+                    >
+                        <div class="interaction-item__modern">
+                            <span class="interaction-item__label"
+                                >ยาแผนปัจจุบัน:</span
+                            >
+                            <span class="interaction-item__drug-name">{{
+                                alert.modern_drug_name
+                            }}</span>
+                        </div>
+                        <div class="interaction-item__herbs">
+                            <span class="interaction-item__label"
+                                >ห้ามใช้ร่วมกับ:</span
+                            >
+                            <span>{{ alert.herb_drug_names.join(", ") }}</span>
+                        </div>
+                        <div
+                            v-if="alert.reason"
+                            class="interaction-item__reason"
+                        >
+                            {{ alert.reason }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Full interactions popup -->
+            <div
+                v-if="showAllInteractions"
+                class="dialog-overlay"
+                @click.self="showAllInteractions = false"
+            >
+                <div class="interaction-dialog">
+                    <button
+                        class="about-dialog__close"
+                        @click="showAllInteractions = false"
+                        type="button"
+                    >
+                        <X :size="16" />
+                    </button>
+                    <h3 style="margin: 0 0 8px">
+                        รายการ Herb/Drug Interaction
+                    </h3>
+                    <div
+                        style="
+                            max-height: 60vh;
+                            overflow: auto;
+                            padding-top: 8px;
+                        "
+                    >
+                        <div
+                            v-for="(alert, idx) in patientInteractionAlerts"
+                            :key="idx"
+                            style="margin-bottom: 10px"
+                        >
+                            <div class="interaction-item">
+                                <div class="interaction-item__modern">
+                                    <span class="interaction-item__label"
+                                        >ยาแผนปัจจุบัน:</span
+                                    >
+                                    <span class="interaction-item__drug-name">{{
+                                        alert.modern_drug_name
+                                    }}</span>
+                                </div>
+                                <div class="interaction-item__herbs">
+                                    <span class="interaction-item__label"
+                                        >ห้ามใช้ร่วมกับ:</span
+                                    >
+                                    <span>{{
+                                        alert.herb_drug_names.join(", ")
+                                    }}</span>
+                                </div>
+                                <div
+                                    v-if="alert.reason"
+                                    class="interaction-item__reason"
+                                >
+                                    {{ alert.reason }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <!-- ── Empty state ──────────────────────────────────────── -->
+        <!-- ── Empty state ─────────────────────────────────────── -->
         <div
             v-if="!selectedRecord && results.length === 0 && !loading"
             class="search-tab__empty"
@@ -1185,6 +1331,24 @@ function viewHistory() {
     transform: scale(0.95);
 }
 
+/* Danger variant for the outline button (red, attention) */
+.btn--danger {
+    /* push to right when used inside .interaction-section__header */
+    margin-left: auto;
+    background: #ffffff;
+    border-color: #d03238;
+    color: #d03238;
+}
+.btn--danger:hover {
+    background: rgba(208, 50, 56, 0.06);
+    border-color: #d03238;
+    color: #d03238;
+    transform: scale(1.02);
+}
+.btn--danger:active {
+    transform: scale(0.98);
+}
+
 /* ── Lab results section ──────────────────────────────────── */
 .patient-card__labs {
     border-top: 1px solid rgba(14, 15, 12, 0.07);
@@ -1302,5 +1466,105 @@ function viewHistory() {
 }
 .search-tab__empty-icon {
     color: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Herb/Drug Interaction Section ───────────────────────── */
+.patient-card__interactions {
+    border-top: 1px solid rgba(14, 15, 12, 0.08);
+    padding: 12px 16px;
+}
+
+.interaction-section__header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #d03238;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+}
+
+.interaction-section__list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.interaction-item {
+    background: rgba(208, 50, 56, 0.06);
+    border: 1px solid rgba(208, 50, 56, 0.2);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.interaction-item__modern,
+.interaction-item__herbs {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 13px;
+    font-family: var(--font-thai, "TH Sarabun New", sans-serif);
+}
+
+.interaction-item__label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #868685;
+    flex-shrink: 0;
+}
+
+.interaction-item__drug-name {
+    font-weight: 600;
+    color: #d03238;
+}
+
+.interaction-item__reason {
+    font-size: 12px;
+    color: #454745;
+    font-style: italic;
+    font-family: var(--font-thai, "TH Sarabun New", sans-serif);
+    padding-top: 2px;
+}
+
+/* Dialog overlay + dialog for full list */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.interaction-dialog {
+    background: var(--bg-input);
+    border: 1.5px solid var(--border-default);
+    border-radius: 12px;
+    width: 480px;
+    max-width: 94vw;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    padding: 18px;
+    text-align: left;
+    position: relative;
+}
+
+.interaction-dialog .about-dialog__close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 6px;
 }
 </style>

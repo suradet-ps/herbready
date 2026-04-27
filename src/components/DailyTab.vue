@@ -15,7 +15,11 @@ import {
     FileSpreadsheet,
     StopCircle,
 } from "lucide-vue-next";
-import type { PatientRecord, LabResult } from "../types";
+import type {
+    PatientRecord,
+    LabResult,
+    HerbDrugInteractionAlert,
+} from "../types";
 import { api } from "../api/tauri";
 import { formatDateThaiShort, todayISO } from "../utils/dateHelper";
 import { hnPadded } from "../utils/drugParser";
@@ -32,6 +36,10 @@ const statsLabel = ref("");
 
 // Lab results: map from hn → LabResult[]
 const labResultsMap = ref<Map<string, LabResult[]>>(new Map());
+// Herb/Drug interaction alerts: map from hn → HerbDrugInteractionAlert[]
+const interactionAlertsMap = ref<Map<string, HerbDrugInteractionAlert[]>>(
+    new Map(),
+);
 const searchText = ref("");
 const searchHint = ref("");
 const highlightedRow = ref<number | null>(null);
@@ -53,6 +61,7 @@ async function loadData() {
     statsLabel.value = "";
     records.value = [];
     labResultsMap.value = new Map();
+    interactionAlertsMap.value = new Map();
     searchText.value = "";
     highlightedRow.value = null;
 
@@ -86,6 +95,29 @@ async function loadData() {
                 // lab results are non-critical — silently ignore errors
             }
         }
+
+        // Fetch herb/drug interaction alerts in background (non-blocking)
+        if (
+            rows.length > 0 &&
+            appConfig.value.herb_drug_interactions.length > 0
+        ) {
+            const hnList = rows.map((r) => r.hn);
+            try {
+                const alerts = await api.checkHerbDrugInteractions(
+                    processDate.value,
+                    hnList,
+                );
+                if (loadId.value !== myId) return;
+                const interMap = new Map<string, HerbDrugInteractionAlert[]>();
+                for (const alert of alerts) {
+                    if (!interMap.has(alert.hn)) interMap.set(alert.hn, []);
+                    interMap.get(alert.hn)!.push(alert);
+                }
+                interactionAlertsMap.value = interMap;
+            } catch {
+                // interaction alerts are non-critical — silently ignore errors
+            }
+        }
     } catch (err: unknown) {
         if (loadId.value !== myId) return; // cancelled
         statsLabel.value = `❌ ${err instanceof Error ? err.message : String(err)}`;
@@ -98,6 +130,7 @@ function cancelLoad() {
     loadId.value += 1; // invalidate in-flight
     loading.value = false;
     labResultsMap.value = new Map();
+    interactionAlertsMap.value = new Map();
     statsLabel.value = "⏹ ยกเลิกการประมวลผล";
 }
 
@@ -143,21 +176,68 @@ function labFullTooltip(hn: string): string {
         );
         if (found) {
             const val = parseFloat(found.lab_order_result);
-            let flag = "";
+            let isAbnormal = false;
             if (!isNaN(val)) {
-                if (rule.compare_gt && val > rule.threshold) flag = " ⚠️";
-                else if (rule.compare_lt && val < rule.threshold) flag = " ⚠️";
+                if (rule.compare_gt && val > rule.threshold) isAbnormal = true;
+                else if (rule.compare_lt && val < rule.threshold)
+                    isAbnormal = true;
                 else if (
                     rule.compare_eq &&
                     Math.abs(val - rule.threshold) < 0.001
                 )
-                    flag = " ⚠️";
+                    isAbnormal = true;
             }
-            return `${rule.lab_items_name}: ${found.lab_order_result} (${found.order_date})${flag}`;
+            const prefix = isAbnormal ? "⚠️ " : "";
+            return `- ${prefix}${rule.lab_items_name}: ${found.lab_order_result} (${found.order_date})`;
         }
-        return `${rule.lab_items_name}: ไม่พบการตรวจ`;
+        return `- ${rule.lab_items_name}: ไม่พบการตรวจ`;
     });
-    return lines.join("\n");
+    const header = "── ผลตรวจทางห้องปฏิบัติการ ──\n";
+    return header + lines.join("\n");
+}
+
+/**
+ * Returns all Herb/Drug interaction alerts for a given HN.
+ */
+function interactionAlertsForHn(hn: string): HerbDrugInteractionAlert[] {
+    return interactionAlertsMap.value.get(hn) ?? [];
+}
+
+/**
+ * Build a Herb/Drug interaction tooltip section for an HN.
+ */
+function interactionTooltip(hn: string): string {
+    const alerts = interactionAlertsForHn(hn);
+    if (alerts.length === 0) return "";
+    const lines = alerts.map((a) => {
+        const herbs = a.herb_drug_names.join(", ");
+        return `- ⚠️ ${a.modern_drug_name}: ห้ามใช้ร่วมกับ ${herbs}\n    เหตุผล: ${a.reason}`;
+    });
+    const header =
+        alerts.length > 1
+            ? `── Herb/Drug Interaction (${alerts.length}) ──\n`
+            : "── Herb/Drug Interaction ──\n";
+    return header + lines.join("\n");
+}
+
+/**
+ * Returns true when an HN has either abnormal lab results or interaction alerts.
+ */
+function hasAnyWarning(hn: string): boolean {
+    return (
+        abnormalLabsForHn(hn).length > 0 ||
+        interactionAlertsForHn(hn).length > 0
+    );
+}
+
+/**
+ * Combined tooltip for HN cell: lab results section + interaction alerts section.
+ */
+function combinedTooltip(hn: string): string {
+    const labPart = labFullTooltip(hn);
+    const interPart = interactionTooltip(hn);
+    if (labPart && interPart) return labPart + "\n\n" + interPart;
+    return labPart || interPart;
 }
 
 function initDrugSelection(rec: PatientRecord): PatientRecord {
@@ -409,13 +489,16 @@ function selectedDrugCount(rec: PatientRecord): number {
                         <!-- HN -->
                         <td class="daily-table__td td--hn">
                             <span
-                                v-if="appConfig.lab_rules.length > 0"
+                                v-if="
+                                    appConfig.lab_rules.length > 0 ||
+                                    appConfig.herb_drug_interactions.length > 0
+                                "
                                 :class="{
-                                    'hn-abnormal-lab':
-                                        abnormalLabsForHn(rec.hn).length > 0,
-                                    'hn-has-lab': true,
+                                    'hn-abnormal-lab': hasAnyWarning(rec.hn),
+                                    'hn-has-lab':
+                                        appConfig.lab_rules.length > 0,
                                 }"
-                                :title="labFullTooltip(rec.hn)"
+                                :title="combinedTooltip(rec.hn)"
                             >
                                 {{ hnPadded(rec.hn) }}
                             </span>

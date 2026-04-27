@@ -40,6 +40,26 @@ export interface DeptConfig {
   name: string;
 }
 
+export interface HerbDrugEntry {
+  icode: string;
+  name: string;
+}
+
+export interface HerbDrugInteraction {
+  modern_drug_icode: string;
+  modern_drug_name: string;
+  herb_drugs: HerbDrugEntry[];
+  reason: string;
+}
+
+export interface HerbDrugInteractionAlert {
+  hn: string;
+  modern_drug_icode: string;
+  modern_drug_name: string;
+  herb_drug_names: string[];
+  reason: string;
+}
+
 export interface LabRuleConfig {
   lab_items_code: string;
   lab_items_name: string;
@@ -61,6 +81,7 @@ export interface AppConfig {
   drugs: DrugConfig[];
   departments: DeptConfig[];
   lab_rules: LabRuleConfig[];
+  herb_drug_interactions: HerbDrugInteraction[];
 }
 
 export interface DatabaseConfig {

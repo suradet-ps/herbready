@@ -6,7 +6,7 @@
 //! The builders return `(String, Vec<String>)` where the Vec contains the
 //! parameter values in positional order.  Callers bind them via sqlx.
 
-use crate::config::{DrugConfig, LabRuleConfig};
+use crate::config::{DrugConfig, HerbDrugInteraction, LabRuleConfig};
 
 // ---------------------------------------------------------------------------
 // Helper: build the icode IN(...) list literal
@@ -778,6 +778,65 @@ pub fn build_latest_abnormal_lab_results_query(
         code_in = code_in,
         pd = pd,
         abnormal_conditions = abnormal_conditions.join(" OR ")
+    );
+
+    Some((sql, vec![]))
+}
+
+// ---------------------------------------------------------------------------
+// Herb/Drug interaction check
+// ---------------------------------------------------------------------------
+
+/// Build a query that returns distinct (hn, icode) pairs where the patient
+/// has been prescribed any of the given modern drug icodes within 1 year
+/// before (and including) process_date.
+///
+/// All values are inlined as literals — no `?` params — to match the pattern
+/// used by `build_latest_lab_results_query`.
+///
+/// Returns `None` when either list is empty.
+pub fn build_check_modern_drug_query(
+    process_date: &str,
+    hn_list: &[String],
+    interactions: &[HerbDrugInteraction],
+) -> Option<(String, Vec<String>)> {
+    if hn_list.is_empty() || interactions.is_empty() {
+        return None;
+    }
+
+    let hn_in = hn_list
+        .iter()
+        .map(|h| format!("'{}'", h.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    // Collect unique modern drug icodes from all interaction rules.
+    let mut icodes: Vec<&str> = interactions
+        .iter()
+        .map(|r| r.modern_drug_icode.as_str())
+        .collect();
+    icodes.sort_unstable();
+    icodes.dedup();
+
+    let icode_in = icodes
+        .iter()
+        .map(|c| format!("'{}'", c.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let pd = process_date.replace('\'', "''");
+
+    let sql = format!(
+        r#"SELECT DISTINCT oi.hn, oi.icode AS modern_icode
+FROM opitemrece oi
+JOIN ovst o ON o.vn = oi.vn
+WHERE oi.hn IN ({hn_in})
+  AND oi.icode IN ({icode_in})
+  AND DATE(o.vstdate) >= DATE_SUB('{pd}', INTERVAL 1 YEAR)
+  AND DATE(o.vstdate) <= '{pd}'"#,
+        hn_in = hn_in,
+        icode_in = icode_in,
+        pd = pd,
     );
 
     Some((sql, vec![]))
