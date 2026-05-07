@@ -1,9 +1,7 @@
 # HerbReady
 
-[![npm](https://img.shields.io/npm/v/herbready?style=flat&logo=npm)](https://npmjs.com/package/herbready)
-[![npm license](https://img.shields.io/npm/l/herbready)](https://npmjs.com/package/herbready)
-[![Rust](https://img.shields.io/badge/rust-2.0.0-orange?logo=rust)](https://www.rust-lang.org)
-[![Vue](https://img.shields.io/badge/vue-3.5-42b883?logo=vuedotjs)](https://vuejs.org)
+[![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust)](https://www.rust-lang.org)
+[![Vue](https://img.shields.io/badge/vue-3.5.13-42b883?logo=vuedotjs)](https://vuejs.org)
 [![Tauri](https://img.shields.io/badge/tauri-2-ffc107?logo=tauri)](https://tauri.app)
 
 HerbReady is a Thai herbal medicine dispensing system for hospitals and clinics, built with Tauri, Vue 3, and TypeScript.
