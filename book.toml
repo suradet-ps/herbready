@@ -3,6 +3,7 @@ title = "HerbReady - คู่มือการใช้งาน"
 description = "ระบบจ่ายยาสมุนไพรสำหรับโรงพยาบาลและคลินิก"
 authors = ["HerbReady Team"]
 language = "th"
+src = "doc-th"
 
 [build]
 create-missing = false
