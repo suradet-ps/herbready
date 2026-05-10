@@ -15,20 +15,20 @@ use crate::config::{DrugConfig, HerbDrugInteraction, LabRuleConfig};
 /// Returns a comma-separated string of quoted icode literals.
 /// e.g. `"'1580004','1500018','1580003'"`
 pub fn build_icode_list(drugs: &[DrugConfig]) -> String {
-    drugs
-        .iter()
-        .map(|d| format!("'{}'", d.icode))
-        .collect::<Vec<_>>()
-        .join(",")
+  drugs
+    .iter()
+    .map(|d| format!("'{}'", d.icode))
+    .collect::<Vec<_>>()
+    .join(",")
 }
 
 /// Returns a `CASE icode WHEN '...' THEN N ...` fragment for course_days.
 pub fn build_course_days_case(drugs: &[DrugConfig]) -> String {
-    drugs
-        .iter()
-        .map(|d| format!("            WHEN '{}' THEN {}", d.icode, d.course_days))
-        .collect::<Vec<_>>()
-        .join("\n")
+  drugs
+    .iter()
+    .map(|d| format!("            WHEN '{}' THEN {}", d.icode, d.course_days))
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -44,49 +44,49 @@ pub fn build_course_days_case(drugs: &[DrugConfig]) -> String {
 /// 3. h subquery   — o.vstdate < ?
 /// 4. WHERE clause — v.vstdate = ?
 pub fn build_daily_query(
-    process_date: &str,
-    dept_codes: &[String],
-    drugs: &[DrugConfig],
-    vitals_on_date: bool,
+  process_date: &str,
+  dept_codes: &[String],
+  drugs: &[DrugConfig],
+  vitals_on_date: bool,
 ) -> (String, Vec<String>) {
-    let icode_list = build_icode_list(drugs);
-    let course_days_case = build_course_days_case(drugs);
+  let icode_list = build_icode_list(drugs);
+  let course_days_case = build_course_days_case(drugs);
 
-    let in_clause = if dept_codes.is_empty() {
-        "'011'".to_string()
-    } else {
-        dept_codes
-            .iter()
-            .map(|c| format!("'{}'", c))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+  let in_clause = if dept_codes.is_empty() {
+    "'011'".to_string()
+  } else {
+    dept_codes
+      .iter()
+      .map(|c| format!("'{}'", c))
+      .collect::<Vec<_>>()
+      .join(", ")
+  };
 
-    // ── Strategy ────────────────────────────────────────────────────────────
-    // 1. Drive from ovst for the target date + department (small set, index hit).
-    // 2. Use a pre-aggregated drug-history subquery (h) scoped to 1 year — this
-    //    is the single most expensive part; we limit it to exactly the HNs that
-    //    appear on the day via a semi-join on the inline hn_today CTE.
-    // 3. Drug master (m) is tiny (≤ ~20 rows from drugitems) — CROSS JOIN is fine.
-    // 4. lv (last-visit date) and ls (opdscreen vitals) are lightweight lookups.
-    // 5. GROUP BY only on the natural PK (vn) + non-aggregated SELECT columns.
-    //    We deliberately exclude ls.* from GROUP BY to avoid MySQL choosing a
-    //    suboptimal plan; ls columns are functionally dependent on ls.vn = v.vn.
-    // ────────────────────────────────────────────────────────────────────────
+  // ── Strategy ────────────────────────────────────────────────────────────
+  // 1. Drive from ovst for the target date + department (small set, index hit).
+  // 2. Use a pre-aggregated drug-history subquery (h) scoped to 1 year — this
+  //    is the single most expensive part; we limit it to exactly the HNs that
+  //    appear on the day via a semi-join on the inline hn_today CTE.
+  // 3. Drug master (m) is tiny (≤ ~20 rows from drugitems) — CROSS JOIN is fine.
+  // 4. lv (last-visit date) and ls (opdscreen vitals) are lightweight lookups.
+  // 5. GROUP BY only on the natural PK (vn) + non-aggregated SELECT columns.
+  //    We deliberately exclude ls.* from GROUP BY to avoid MySQL choosing a
+  //    suboptimal plan; ls columns are functionally dependent on ls.vn = v.vn.
+  // ────────────────────────────────────────────────────────────────────────
 
-    // Build the vitals sub-join depending on the vitals_on_date flag.
-    //
-    // vitals_on_date = true  → only rows whose visit date equals process_date
-    //                          (same visit as the one being processed).
-    // vitals_on_date = false → latest opdscreen row per patient up to and
-    //                          including process_date (legacy / default behaviour).
-    //
-    // NOTE: process_date and in_clause are inlined here (not bound as `?`)
-    // because they are already used as literals elsewhere in the same query.
-    // The vitals subquery does not add any new `?` placeholders.
-    let vitals_join = if vitals_on_date {
-        format!(
-            r#"SELECT os.vn,
+  // Build the vitals sub-join depending on the vitals_on_date flag.
+  //
+  // vitals_on_date = true  → only rows whose visit date equals process_date
+  //                          (same visit as the one being processed).
+  // vitals_on_date = false → latest opdscreen row per patient up to and
+  //                          including process_date (legacy / default behaviour).
+  //
+  // NOTE: process_date and in_clause are inlined here (not bound as `?`)
+  // because they are already used as literals elsewhere in the same query.
+  // The vitals subquery does not add any new `?` placeholders.
+  let vitals_join = if vitals_on_date {
+    format!(
+      r#"SELECT os.vn,
                       MAX(os.bw)  AS bw,
                       MAX(os.bps) AS bps,
                       MAX(os.bpd) AS bpd,
@@ -96,18 +96,18 @@ pub fn build_daily_query(
                WHERE  ov.vstdate = '{pd}'
                  AND  ov.cur_dep IN ({ic})
                GROUP  BY os.vn"#,
-            pd = process_date,
-            ic = in_clause,
-        )
-    } else {
-        // Return today's VN (so the outer LEFT JOIN on vitals.vn = v.vn matches)
-        // but pull vital signs from the latest PAST visit strictly before process_date.
-        // Bug fixes:
-        //   1. Use `< '{pd}'` (strict) so process_date vitals are never included.
-        //   2. Return v_today.vn (today's VN) instead of the past visit's VN so
-        //      the outer join `vitals.vn = v.vn` actually matches.
-        format!(
-            r#"SELECT v_today.vn,
+      pd = process_date,
+      ic = in_clause,
+    )
+  } else {
+    // Return today's VN (so the outer LEFT JOIN on vitals.vn = v.vn matches)
+    // but pull vital signs from the latest PAST visit strictly before process_date.
+    // Bug fixes:
+    //   1. Use `< '{pd}'` (strict) so process_date vitals are never included.
+    //   2. Return v_today.vn (today's VN) instead of the past visit's VN so
+    //      the outer join `vitals.vn = v.vn` actually matches.
+    format!(
+      r#"SELECT v_today.vn,
                       os.bw,
                       os.bps,
                       os.bpd,
@@ -132,13 +132,13 @@ pub fn build_daily_query(
                    GROUP  BY ov.hn
                ) AS prev ON prev.hn = v_today.hn
                JOIN opdscreen os ON os.vn = prev.last_vn"#,
-            pd = process_date,
-            ic = in_clause,
-        )
-    };
+      pd = process_date,
+      ic = in_clause,
+    )
+  };
 
-    let sql = format!(
-        r#"
+  let sql = format!(
+    r#"
 SELECT
     v.vn,
     v.hn,
@@ -240,29 +240,29 @@ GROUP BY v.vn, v.hn, p.cid, p.pname, p.fname, p.lname,
          k.department, pt.name, lv.vstdate
 ORDER BY v.vn
 "#,
-        course_days_case = course_days_case,
-        icode_list = icode_list,
-        in_clause = in_clause,
-        vitals_join = vitals_join,
-    );
+    course_days_case = course_days_case,
+    icode_list = icode_list,
+    in_clause = in_clause,
+    vitals_join = vitals_join,
+  );
 
-    // Param order matches the ? placeholders left-to-right:
-    //  1. lv subquery : o2.vstdate < ?
-    //  2. lv subquery : inner SELECT vstdate = ?
-    //  3. h subquery  : DATE_SUB(?, INTERVAL 1 YEAR)
-    //  4. h subquery  : o.vstdate < ?
-    //  5. h subquery  : inner SELECT vstdate = ?
-    //  6. WHERE       : v.vstdate = ?
-    let params = vec![
-        process_date.to_string(), // 1 lv: vstdate < ?
-        process_date.to_string(), // 2 lv: inner vstdate = ?
-        process_date.to_string(), // 3 h:  DATE_SUB(?, 1 YEAR)
-        process_date.to_string(), // 4 h:  o.vstdate < ?
-        process_date.to_string(), // 5 h:  inner vstdate = ?
-        process_date.to_string(), // 6 WHERE v.vstdate = ?
-    ];
+  // Param order matches the ? placeholders left-to-right:
+  //  1. lv subquery : o2.vstdate < ?
+  //  2. lv subquery : inner SELECT vstdate = ?
+  //  3. h subquery  : DATE_SUB(?, INTERVAL 1 YEAR)
+  //  4. h subquery  : o.vstdate < ?
+  //  5. h subquery  : inner SELECT vstdate = ?
+  //  6. WHERE       : v.vstdate = ?
+  let params = vec![
+    process_date.to_string(), // 1 lv: vstdate < ?
+    process_date.to_string(), // 2 lv: inner vstdate = ?
+    process_date.to_string(), // 3 h:  DATE_SUB(?, 1 YEAR)
+    process_date.to_string(), // 4 h:  o.vstdate < ?
+    process_date.to_string(), // 5 h:  inner vstdate = ?
+    process_date.to_string(), // 6 WHERE v.vstdate = ?
+  ];
 
-    (sql, params)
+  (sql, params)
 }
 
 // ---------------------------------------------------------------------------
@@ -270,30 +270,30 @@ ORDER BY v.vn
 // ---------------------------------------------------------------------------
 
 pub fn build_individual_search_query(
-    process_date: &str,
-    hn: Option<&str>,
-    cid: Option<&str>,
-    name: Option<&str>,
-    drugs: &[DrugConfig],
+  process_date: &str,
+  hn: Option<&str>,
+  cid: Option<&str>,
+  name: Option<&str>,
+  drugs: &[DrugConfig],
 ) -> (String, Vec<String>) {
-    let icode_list = build_icode_list(drugs);
-    let course_days_case = build_course_days_case(drugs);
+  let icode_list = build_icode_list(drugs);
+  let course_days_case = build_course_days_case(drugs);
 
-    let (patient_filter, id_param) = if let Some(h) = hn {
-        ("AND p.hn = ?".to_string(), h.to_string())
-    } else if let Some(c) = cid {
-        ("AND p.cid = ?".to_string(), c.to_string())
-    } else if let Some(n) = name {
-        (
-            "AND CONCAT(p.pname, p.fname, ' ', p.lname) LIKE ?".to_string(),
-            format!("%{}%", n),
-        )
-    } else {
-        ("AND 1=0".to_string(), String::new()) // should not happen
-    };
+  let (patient_filter, id_param) = if let Some(h) = hn {
+    ("AND p.hn = ?".to_string(), h.to_string())
+  } else if let Some(c) = cid {
+    ("AND p.cid = ?".to_string(), c.to_string())
+  } else if let Some(n) = name {
+    (
+      "AND CONCAT(p.pname, p.fname, ' ', p.lname) LIKE ?".to_string(),
+      format!("%{}%", n),
+    )
+  } else {
+    ("AND 1=0".to_string(), String::new()) // should not happen
+  };
 
-    let sql = format!(
-        r#"
+  let sql = format!(
+    r#"
 SELECT
     pat.hn,
     pat.cid,
@@ -410,23 +410,23 @@ GROUP BY pat.hn, pat.cid, pat.pt_name,
          lv.vstdate, ls.bw, ls.bps, ls.bpd, ls.pulse
 ORDER BY pat.hn
 "#,
-        patient_filter = patient_filter,
-        course_days_case = course_days_case,
-        icode_list = icode_list,
-    );
+    patient_filter = patient_filter,
+    course_days_case = course_days_case,
+    icode_list = icode_list,
+  );
 
-    let params = vec![
-        process_date.to_string(), // eligible: DATE_ADD(...) <= ?
-        process_date.to_string(), // not_yet:  DATE_ADD(...) > ?
-        process_date.to_string(), // not_yet:  DATEDIFF(..., ?)
-        id_param,                 // patient filter
-        process_date.to_string(), // lv inner: MAX(vstdate) WHERE vstdate < ?
-        process_date.to_string(), // lv outer: WHERE vstdate < ?
-        process_date.to_string(), // h:  DATE_SUB(?, INTERVAL 1 YEAR)
-        process_date.to_string(), // h:  o.vstdate < ?
-    ];
+  let params = vec![
+    process_date.to_string(), // eligible: DATE_ADD(...) <= ?
+    process_date.to_string(), // not_yet:  DATE_ADD(...) > ?
+    process_date.to_string(), // not_yet:  DATEDIFF(..., ?)
+    id_param,                 // patient filter
+    process_date.to_string(), // lv inner: MAX(vstdate) WHERE vstdate < ?
+    process_date.to_string(), // lv outer: WHERE vstdate < ?
+    process_date.to_string(), // h:  DATE_SUB(?, INTERVAL 1 YEAR)
+    process_date.to_string(), // h:  o.vstdate < ?
+  ];
 
-    (sql, params)
+  (sql, params)
 }
 
 // ---------------------------------------------------------------------------
@@ -434,30 +434,30 @@ ORDER BY pat.hn
 // ---------------------------------------------------------------------------
 
 pub fn build_dispensing_history_query(
-    date_from: &str,
-    date_to: &str,
-    hn: Option<&str>,
-    cid: Option<&str>,
-    name: Option<&str>,
-    drugs: &[DrugConfig],
+  date_from: &str,
+  date_to: &str,
+  hn: Option<&str>,
+  cid: Option<&str>,
+  name: Option<&str>,
+  drugs: &[DrugConfig],
 ) -> (String, Vec<String>) {
-    let icode_list = build_icode_list(drugs);
+  let icode_list = build_icode_list(drugs);
 
-    let (patient_filter, id_param) = if let Some(h) = hn {
-        ("AND p.hn = ?".to_string(), Some(h.to_string()))
-    } else if let Some(c) = cid {
-        ("AND p.cid = ?".to_string(), Some(c.to_string()))
-    } else if let Some(n) = name {
-        (
-            "AND CONCAT(p.pname, p.fname, ' ', p.lname) LIKE ?".to_string(),
-            Some(format!("%{}%", n)),
-        )
-    } else {
-        (String::new(), None)
-    };
+  let (patient_filter, id_param) = if let Some(h) = hn {
+    ("AND p.hn = ?".to_string(), Some(h.to_string()))
+  } else if let Some(c) = cid {
+    ("AND p.cid = ?".to_string(), Some(c.to_string()))
+  } else if let Some(n) = name {
+    (
+      "AND CONCAT(p.pname, p.fname, ' ', p.lname) LIKE ?".to_string(),
+      Some(format!("%{}%", n)),
+    )
+  } else {
+    (String::new(), None)
+  };
 
-    let sql = format!(
-        r#"
+  let sql = format!(
+    r#"
 SELECT
     o.vstdate,
     p.hn,
@@ -496,18 +496,18 @@ GROUP BY o.vstdate, p.hn, p.cid, p.pname, p.fname, p.lname
 ORDER BY o.vstdate DESC, p.hn
 LIMIT 1000
 "#,
-        icode_list = icode_list,
-        patient_filter = patient_filter,
-    );
+    icode_list = icode_list,
+    patient_filter = patient_filter,
+  );
 
-    let mut params = Vec::new();
-    if let Some(id) = id_param {
-        params.push(id);
-    }
-    params.push(date_from.to_string()); // BETWEEN ?
-    params.push(date_to.to_string()); // AND ?
+  let mut params = Vec::new();
+  if let Some(id) = id_param {
+    params.push(id);
+  }
+  params.push(date_from.to_string()); // BETWEEN ?
+  params.push(date_to.to_string()); // AND ?
 
-    (sql, params)
+  (sql, params)
 }
 
 // ---------------------------------------------------------------------------
@@ -515,19 +515,19 @@ LIMIT 1000
 // ---------------------------------------------------------------------------
 
 pub fn build_patient_herb_history_query(
-    hn: &str,
-    years_back: Option<i32>,
-    drugs: &[DrugConfig],
+  hn: &str,
+  years_back: Option<i32>,
+  drugs: &[DrugConfig],
 ) -> (String, Vec<String>) {
-    let icode_list = build_icode_list(drugs);
+  let icode_list = build_icode_list(drugs);
 
-    let date_filter = match years_back {
-        Some(y) if y > 0 => format!("AND o.vstdate >= DATE_SUB(CURDATE(), INTERVAL {} YEAR)", y),
-        _ => String::new(),
-    };
+  let date_filter = match years_back {
+    Some(y) if y > 0 => format!("AND o.vstdate >= DATE_SUB(CURDATE(), INTERVAL {} YEAR)", y),
+    _ => String::new(),
+  };
 
-    let sql = format!(
-        r#"
+  let sql = format!(
+    r#"
 SELECT
     o.vstdate,
     di.name                                       AS drug_name,
@@ -545,11 +545,11 @@ WHERE oi.hn = ?
 ORDER BY o.vstdate DESC, di.name
 LIMIT 5000
 "#,
-        icode_list = icode_list,
-        date_filter = date_filter,
-    );
+    icode_list = icode_list,
+    date_filter = date_filter,
+  );
 
-    (sql, vec![hn.to_string()])
+  (sql, vec![hn.to_string()])
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +557,7 @@ LIMIT 5000
 // ---------------------------------------------------------------------------
 
 pub fn build_patient_lookup_by_name(name: &str) -> (String, Vec<String>) {
-    let sql = r#"
+  let sql = r#"
 SELECT
     p.hn,
     p.cid,
@@ -569,9 +569,9 @@ WHERE CONCAT(p.pname, p.fname, ' ', p.lname) LIKE ?
 ORDER BY p.hn
 LIMIT 200
 "#
-    .to_string();
+  .to_string();
 
-    (sql, vec![format!("%{}%", name)])
+  (sql, vec![format!("%{}%", name)])
 }
 
 // ---------------------------------------------------------------------------
@@ -581,14 +581,14 @@ LIMIT 200
 /// Build a query to look up a single patient by HN (if is_cid=false) or CID (if is_cid=true).
 /// Returns hn, cid, pt_name, pttype_name.
 pub fn build_patient_lookup_by_hn_or_cid(id: &str, is_cid: bool) -> (String, Vec<String>) {
-    let where_clause = if is_cid {
-        "WHERE p.cid = ?"
-    } else {
-        "WHERE p.hn = ?"
-    };
+  let where_clause = if is_cid {
+    "WHERE p.cid = ?"
+  } else {
+    "WHERE p.hn = ?"
+  };
 
-    let sql = format!(
-        r#"
+  let sql = format!(
+    r#"
 SELECT
     p.hn,
     p.cid,
@@ -599,10 +599,10 @@ LEFT JOIN pttype pt ON pt.pttype = p.pttype
 {where_clause}
 LIMIT 1
 "#,
-        where_clause = where_clause,
-    );
+    where_clause = where_clause,
+  );
 
-    (sql, vec![id.to_string()])
+  (sql, vec![id.to_string()])
 }
 
 // ---------------------------------------------------------------------------
@@ -611,8 +611,8 @@ LIMIT 1
 
 /// Returns (sql, params) to look up a lab item name by code.
 pub fn build_lab_item_lookup_query(code: &str) -> (String, Vec<String>) {
-    let sql = "SELECT lab_items_name FROM lab_items WHERE lab_items_code = ? LIMIT 1".to_string();
-    (sql, vec![code.to_string()])
+  let sql = "SELECT lab_items_name FROM lab_items WHERE lab_items_code = ? LIMIT 1".to_string();
+  (sql, vec![code.to_string()])
 }
 
 // ---------------------------------------------------------------------------
@@ -626,29 +626,29 @@ pub fn build_lab_item_lookup_query(code: &str) -> (String, Vec<String>) {
 /// so MySQL can optimise the IN() and DATE() comparisons correctly regardless of
 /// whether order_date is stored as DATE or DATETIME.
 pub fn build_latest_lab_results_query(
-    process_date: &str,
-    hn_list: &[String],
-    code_list: &[String],
+  process_date: &str,
+  hn_list: &[String],
+  code_list: &[String],
 ) -> Option<(String, Vec<String>)> {
-    if hn_list.is_empty() || code_list.is_empty() {
-        return None;
-    }
-    let hn_in = hn_list
-        .iter()
-        .map(|h| format!("'{}'", h.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
-    let code_in = code_list
-        .iter()
-        .map(|c| format!("'{}'", c.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
+  if hn_list.is_empty() || code_list.is_empty() {
+    return None;
+  }
+  let hn_in = hn_list
+    .iter()
+    .map(|h| format!("'{}'", h.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
+  let code_in = code_list
+    .iter()
+    .map(|c| format!("'{}'", c.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
 
-    // Escape single quotes in process_date for safe inlining
-    let pd = process_date.replace('\'', "''");
+  // Escape single quotes in process_date for safe inlining
+  let pd = process_date.replace('\'', "''");
 
-    let sql = format!(
-        r#"SELECT
+  let sql = format!(
+    r#"SELECT
             latest.hn,
             latest.lab_items_code,
             latest.lab_items_name,
@@ -676,76 +676,76 @@ pub fn build_latest_lab_results_query(
               AND o.lab_order_result REGEXP '^[[:space:]]*[0-9]'
         ) latest
         WHERE latest.rn = 1"#,
-        hn_in = hn_in,
-        code_in = code_in,
-        pd = pd
-    );
+    hn_in = hn_in,
+    code_in = code_in,
+    pd = pd
+  );
 
-    Some((sql, vec![]))
+  Some((sql, vec![]))
 }
 
 pub fn build_latest_abnormal_lab_results_query(
-    process_date: &str,
-    hn_list: &[String],
-    rules: &[LabRuleConfig],
+  process_date: &str,
+  hn_list: &[String],
+  rules: &[LabRuleConfig],
 ) -> Option<(String, Vec<String>)> {
-    if hn_list.is_empty() || rules.is_empty() {
-        return None;
+  if hn_list.is_empty() || rules.is_empty() {
+    return None;
+  }
+
+  let hn_in = hn_list
+    .iter()
+    .map(|h| format!("'{}'", h.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
+
+  let pd = process_date.replace('\'', "''");
+
+  let mut abnormal_conditions: Vec<String> = Vec::new();
+  for rule in rules {
+    let code = rule.lab_items_code.replace('\'', "''");
+    let mut comparisons: Vec<String> = Vec::new();
+
+    if rule.compare_gt {
+      comparisons.push(format!(
+        "CAST(latest.lab_order_result AS DECIMAL(10,2)) > {}",
+        rule.threshold
+      ));
+    }
+    if rule.compare_lt {
+      comparisons.push(format!(
+        "CAST(latest.lab_order_result AS DECIMAL(10,2)) < {}",
+        rule.threshold
+      ));
+    }
+    if rule.compare_eq {
+      comparisons.push(format!(
+        "ABS(CAST(latest.lab_order_result AS DECIMAL(10,3)) - {}) < 0.001",
+        rule.threshold
+      ));
     }
 
-    let hn_in = hn_list
-        .iter()
-        .map(|h| format!("'{}'", h.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let pd = process_date.replace('\'', "''");
-
-    let mut abnormal_conditions: Vec<String> = Vec::new();
-    for rule in rules {
-        let code = rule.lab_items_code.replace('\'', "''");
-        let mut comparisons: Vec<String> = Vec::new();
-
-        if rule.compare_gt {
-            comparisons.push(format!(
-                "CAST(latest.lab_order_result AS DECIMAL(10,2)) > {}",
-                rule.threshold
-            ));
-        }
-        if rule.compare_lt {
-            comparisons.push(format!(
-                "CAST(latest.lab_order_result AS DECIMAL(10,2)) < {}",
-                rule.threshold
-            ));
-        }
-        if rule.compare_eq {
-            comparisons.push(format!(
-                "ABS(CAST(latest.lab_order_result AS DECIMAL(10,3)) - {}) < 0.001",
-                rule.threshold
-            ));
-        }
-
-        if !comparisons.is_empty() {
-            abnormal_conditions.push(format!(
-                "(latest.lab_items_code = '{}' AND ({}))",
-                code,
-                comparisons.join(" OR ")
-            ));
-        }
+    if !comparisons.is_empty() {
+      abnormal_conditions.push(format!(
+        "(latest.lab_items_code = '{}' AND ({}))",
+        code,
+        comparisons.join(" OR ")
+      ));
     }
+  }
 
-    if abnormal_conditions.is_empty() {
-        return None;
-    }
+  if abnormal_conditions.is_empty() {
+    return None;
+  }
 
-    let code_in = rules
-        .iter()
-        .map(|r| format!("'{}'", r.lab_items_code.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
+  let code_in = rules
+    .iter()
+    .map(|r| format!("'{}'", r.lab_items_code.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
 
-    let sql = format!(
-        r#"SELECT
+  let sql = format!(
+    r#"SELECT
             latest.hn,
             latest.lab_items_code,
             latest.lab_items_name,
@@ -774,13 +774,13 @@ pub fn build_latest_abnormal_lab_results_query(
         ) latest
         WHERE latest.rn = 1
           AND ({abnormal_conditions})"#,
-        hn_in = hn_in,
-        code_in = code_in,
-        pd = pd,
-        abnormal_conditions = abnormal_conditions.join(" OR ")
-    );
+    hn_in = hn_in,
+    code_in = code_in,
+    pd = pd,
+    abnormal_conditions = abnormal_conditions.join(" OR ")
+  );
 
-    Some((sql, vec![]))
+  Some((sql, vec![]))
 }
 
 // ---------------------------------------------------------------------------
@@ -796,48 +796,48 @@ pub fn build_latest_abnormal_lab_results_query(
 ///
 /// Returns `None` when either list is empty.
 pub fn build_check_modern_drug_query(
-    process_date: &str,
-    hn_list: &[String],
-    interactions: &[HerbDrugInteraction],
+  process_date: &str,
+  hn_list: &[String],
+  interactions: &[HerbDrugInteraction],
 ) -> Option<(String, Vec<String>)> {
-    if hn_list.is_empty() || interactions.is_empty() {
-        return None;
-    }
+  if hn_list.is_empty() || interactions.is_empty() {
+    return None;
+  }
 
-    let hn_in = hn_list
-        .iter()
-        .map(|h| format!("'{}'", h.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
+  let hn_in = hn_list
+    .iter()
+    .map(|h| format!("'{}'", h.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
 
-    // Collect unique modern drug icodes from all interaction rules.
-    let mut icodes: Vec<&str> = interactions
-        .iter()
-        .map(|r| r.modern_drug_icode.as_str())
-        .collect();
-    icodes.sort_unstable();
-    icodes.dedup();
+  // Collect unique modern drug icodes from all interaction rules.
+  let mut icodes: Vec<&str> = interactions
+    .iter()
+    .map(|r| r.modern_drug_icode.as_str())
+    .collect();
+  icodes.sort_unstable();
+  icodes.dedup();
 
-    let icode_in = icodes
-        .iter()
-        .map(|c| format!("'{}'", c.replace('\'', "''")))
-        .collect::<Vec<_>>()
-        .join(",");
+  let icode_in = icodes
+    .iter()
+    .map(|c| format!("'{}'", c.replace('\'', "''")))
+    .collect::<Vec<_>>()
+    .join(",");
 
-    let pd = process_date.replace('\'', "''");
+  let pd = process_date.replace('\'', "''");
 
-    let sql = format!(
-        r#"SELECT DISTINCT oi.hn, oi.icode AS modern_icode
+  let sql = format!(
+    r#"SELECT DISTINCT oi.hn, oi.icode AS modern_icode
 FROM opitemrece oi
 JOIN ovst o ON o.vn = oi.vn
 WHERE oi.hn IN ({hn_in})
   AND oi.icode IN ({icode_in})
   AND DATE(o.vstdate) >= DATE_SUB('{pd}', INTERVAL 1 YEAR)
   AND DATE(o.vstdate) <= '{pd}'"#,
-        hn_in = hn_in,
-        icode_in = icode_in,
-        pd = pd,
-    );
+    hn_in = hn_in,
+    icode_in = icode_in,
+    pd = pd,
+  );
 
-    Some((sql, vec![]))
+  Some((sql, vec![]))
 }
