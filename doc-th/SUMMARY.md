@@ -1,0 +1,15 @@
+# สารบัญ
+
+- [หน้าหลัก](README.md)
+- [1. ภาพรวมของโปรแกรม](1-overview.md)
+- [2. การติดตั้งโปรแกรม](2-installation.md)
+- [3. การเชื่อมต่อฐานข้อมูล](3-database-connection.md)
+- [4. การตั้งค่าโปรแกรม](4-configuration.md)
+- [5. คู่มือการใช้งาน](5-user-guide.md)
+  - [5-1. แท็บคิววันนี้](5-1-daily-queue.md)
+  - [5-2. แท็บค้นหาผู้ป่วย](5-2-patient-search.md)
+  - [5-3. แท็บประวัติการจ่ายยา](5-3-dispensing-history.md)
+  - [5-4. แผงเลือกยา](5-4-drug-panel.md)
+- [6. การส่งออกข้อมูลและพิมพ์](6-export-print.md)
+- [7. การแก้ปัญหาและคำถามที่พบบ่อย](7-troubleshooting.md)
+- [8. ภาคผนวก](8-appendix.md)

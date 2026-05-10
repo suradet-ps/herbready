@@ -1,0 +1,28 @@
+[book]
+title = "HerbReady - คู่มือการใช้งาน"
+description = "ระบบจ่ายยาสมุนไพรสำหรับโรงพยาบาลและคลินิก"
+authors = ["HerbReady Team"]
+language = "th"
+
+[build]
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/ttmsabotitachiraya/herbready"
+edit-url-template = "https://github.com/ttmsabotitachiraya/herbready/edit/main/doc-th/{path}"
+
+[output.html.search]
+enable = true
+
+[output.html.static]
+extra-js = []
+extra-css = []
+
+[output.html.playground]
+editable = false
+
+[output.html.theme]
+preferred-dark-theme = "ayu"
+
+[preprocessor.toc]
+command = "mdbook-toc"
