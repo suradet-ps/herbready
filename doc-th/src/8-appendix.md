@@ -191,6 +191,8 @@ herbready/
 
 ## ภาคผนวก ช: License
 
+**© 2026 rxdevman. All rights reserved.**
+
 HerbReady เผยแพร่ภายใต้ **MIT License**
 
 ---

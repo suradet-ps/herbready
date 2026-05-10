@@ -29,7 +29,7 @@ const statusClass = computed(() => `status--${connectionStatus.value}`);
         <div class="connection-bar__inner">
             <!-- LEFT: Hospital name -->
             <span class="connection-bar__hospital">
-                @ 2026 งานแพทย์แผนไทย โรงพยาบาลสระโบสถ์
+                © 2026 rxdevman. All rights reserved.
             </span>
 
             <!-- Spacer -->

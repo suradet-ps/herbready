@@ -112,4 +112,5 @@ Key tables (requires connection to hospital HIS database):
 
 ## License
 
-MIT License
+© 2026 rxdevman. All rights reserved.
+HerbReady is released under the **MIT License**.

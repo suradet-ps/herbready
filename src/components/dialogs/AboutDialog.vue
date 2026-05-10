@@ -33,7 +33,11 @@ const emit = defineEmits<{
         <div class="meta-table">
           <div class="meta-row">
             <span class="meta-key">พัฒนาโดย</span>
-            <span class="meta-val">คลินิกแพทย์แผนไทย</span>
+            <span class="meta-val">rxdevman</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">ลิขสิทธิ์</span>
+            <span class="meta-val">© 2026 rxdevman. All rights reserved.</span>
           </div>
           <div class="meta-row">
             <span class="meta-key">เทคโนโลยี</span>

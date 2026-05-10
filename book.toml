@@ -1,7 +1,7 @@
 [book]
 title = "HerbReady - คู่มือการใช้งาน"
 description = "ระบบจ่ายยาสมุนไพรสำหรับโรงพยาบาลและคลินิก"
-authors = ["HerbReady Team"]
+authors = ["rxdevman"]
 language = "th"
 src = "doc-th/src"
 

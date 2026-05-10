@@ -2,7 +2,7 @@
 name = "HerbReady"
 version = "2.0.0"
 description = "HerbReady — ระบบจ่ายยาสมุนไพร"
-authors = ["HerbReady"]
+authors = ["rxdevman"]
 edition = "2021"
 
 [lib]

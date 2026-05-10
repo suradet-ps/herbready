@@ -31,6 +31,9 @@ const emit = defineEmits<{
       <div class="about-dialog__sep"></div>
 
       <div class="about-dialog__footer">
+        <span>© 2026 rxdevman. All rights reserved.</span>
+      </div>
+      <div class="about-dialog__footer" style="margin-top: 6px;">
         <span>Built with Tauri 2 + Vue 3.5 + TypeScript</span>
       </div>
     </div>
