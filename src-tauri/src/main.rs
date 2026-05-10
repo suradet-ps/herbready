@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    herb_ready_tauri_lib::run();
+  herb_ready_tauri_lib::run();
 }
