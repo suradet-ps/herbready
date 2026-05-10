@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::crypto;
+
 // ---------------------------------------------------------------------------
 // DatabaseConfig
 // ---------------------------------------------------------------------------
@@ -174,6 +176,25 @@ fn parse_ini(content: &str) -> std::collections::HashMap<String, String> {
     map
 }
 
+/// Internal struct for serializing all DB fields into one encrypted blob.
+#[derive(Serialize, Deserialize)]
+struct DbConnectionBlob {
+    host: String,
+    port: u16,
+    name: String,
+    user: String,
+    password: String,
+}
+
+/// Master key source — derived from machine-specific data.
+/// In production, consider deriving from OS keychain/credential store.
+fn get_master_key() -> Result<String> {
+    let machine_id = whoami::fallible::devicename()
+        .unwrap_or_else(|_| "HerbReady-DefaultMachine".to_string());
+    let username = whoami::username();
+    Ok(format!("HerbReady-v2-MasterKey-{}-{}", username, machine_id))
+}
+
 /// Read database config from config.ini.
 /// Returns `DatabaseConfig::default()` when the file does not exist yet.
 pub fn read_db_config() -> Result<DatabaseConfig> {
@@ -192,39 +213,49 @@ pub fn read_db_config() -> Result<DatabaseConfig> {
 
     let ini = parse_ini(&content);
 
-    let host = ini
-        .get("database.host")
-        .cloned()
-        .unwrap_or_else(|| "127.0.0.1".into());
-    let port: u16 = ini
-        .get("database.port")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3306);
-    let name = ini
-        .get("database.name")
-        .cloned()
-        .unwrap_or_else(|| "hosxp".into());
-    let user = ini
-        .get("database.user")
-        .cloned()
-        .unwrap_or_else(|| "root".into());
-    let password = ini.get("database.password").cloned().unwrap_or_default();
+    let master_key = get_master_key()?;
+
+    let blob: DbConnectionBlob = if let Some(encrypted) = ini.get("database.connection") {
+        let json = crypto::decrypt(encrypted, &master_key)?;
+        serde_json::from_str(&json).context("ไม่สามารถแปลงข้อมูล connection")?
+    } else {
+        DbConnectionBlob {
+            host: ini.get("database.host").cloned().unwrap_or_else(|| "127.0.0.1".into()),
+            port: ini.get("database.port").and_then(|v| v.parse().ok()).unwrap_or(3306),
+            name: ini.get("database.name").cloned().unwrap_or_else(|| "hosxp".into()),
+            user: ini.get("database.user").cloned().unwrap_or_else(|| "root".into()),
+            password: ini.get("database.password").cloned().unwrap_or_default(),
+        }
+    };
 
     Ok(DatabaseConfig {
-        host,
-        port,
-        name,
-        user,
-        password,
+        host: blob.host,
+        port: blob.port,
+        name: blob.name,
+        user: blob.user,
+        password: blob.password,
     })
 }
 
 /// Write database config to config.ini.
 pub fn write_db_config(cfg: &DatabaseConfig) -> Result<()> {
     let path = config_ini_path()?;
+
+    let master_key = get_master_key()?;
+
+    let blob = DbConnectionBlob {
+        host: cfg.host.clone(),
+        port: cfg.port,
+        name: cfg.name.clone(),
+        user: cfg.user.clone(),
+        password: cfg.password.clone(),
+    };
+    let json = serde_json::to_string(&blob).context("ไม่สามารถแปลง DbConnectionBlob เป็น JSON")?;
+    let encrypted_connection = crypto::encrypt(&json, &master_key)?;
+
     let content = format!(
-        "[database]\nhost     = {}\nport     = {}\nname     = {}\nuser     = {}\npassword = {}\n\n[app]\ntitle        = HerbReady - ระบบจ่ายยาสมุนไพร\ndefault_dept = 011\ntheme        = dark\n",
-        cfg.host, cfg.port, cfg.name, cfg.user, cfg.password
+        "[database]\nconnection = {}\n\n[app]\ntitle        = HerbReady - ระบบจ่ายยาสมุนไพร\ndefault_dept = 011\ntheme        = dark\n",
+        encrypted_connection
     );
     fs::write(&path, content)
         .with_context(|| format!("ไม่สามารถเขียน config.ini ที่ {}", path.display()))?;
