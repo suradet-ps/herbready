@@ -1,116 +1,142 @@
 # HerbReady
 
-[![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust)](https://www.rust-lang.org)
-[![Vue](https://img.shields.io/badge/vue-3.5.13-42b883?logo=vuedotjs)](https://vuejs.org)
-[![Tauri](https://img.shields.io/badge/tauri-2-ffc107?logo=tauri)](https://tauri.app)
+```
+██╗  ██╗███████╗██████╗ ██████╗ ██████╗ ███████╗ █████╗ ██████╗ ██╗   ██╗
+██║  ██║██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+███████║█████╗  ██████╔╝██████╔╝██████╔╝█████╗  ███████║██║  ██║ ╚████╔╝
+██║  ██║██╔══╝  ██╔══██╗██╔══██╗██╔══██╗██╔══╝  ██╔══██║██║  ██║  ╚═══╝
+██║  ██║███████╗██║  ██║██████╔╝██║  ██║███████╗██║  ██║██████╔╝  ██╗
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝   ╚═╝
+```
 
-HerbReady is a Thai herbal medicine dispensing system for hospitals and clinics, built with Tauri, Vue 3, and TypeScript.
+---
 
-## Tech Stack
+## ◆ PULSE
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Vue 3 + TypeScript + Vite |
-| Backend | Rust (Tauri 2) |
-| Database | MySQL 8.0 (via sqlx) |
-| UI Components | Lucide Vue Icons |
+Herbal medicine does not ask for permission, but it should not be
+dispensed blind. HerbReady is the dispensing counter for Thai herbal
+medicine in hospitals and clinics: it walks the daily queue, separates
+who is eligible from who is not, warns when a herb and a modern drug
+should not share a patient, and prints the prescription that explains
+itself. The pharmacy sees the interaction, the lab rule, and the
+eligibility verdict before the medicine leaves the counter - in Thai or
+in English, whichever the room speaks.
 
-## Features
+| Queue ▣ | Eligibility ▣ | Interactions ▣ | Prescriptions ▣ |
+|---|---|---|---|
 
-- **Daily Queue Processing** — Load and process daily patient queue with herbal medicine eligibility
-- **Patient Search** — Search patients by name, HN, or CID to view prescription history
-- **Drug Eligibility System** — Categorize patients into eligible, never-dispensed, and not-yet-eligible groups
-- **Drug Interaction Alerts** — Detect potential interactions between modern drugs and herbal medicines
-- **Lab Result Integration** — Fetch and display lab results with configurable threshold rules
-- **Dispense Workflow** — Select drugs to dispense, set quantities, and generate prescriptions
-- **Prescription PDF** — Generate printable PDF prescriptions for patients
-- **Excel Export** — Export daily dispensing records to Excel (xlsx format)
-- **Print Management** — Batch print multiple prescriptions
-- **Multi-language** — Support for English and Thai
+*The daily loop - screen, judge, warn, dispense, print - is sealed.*
 
-## Prerequisites
+> Built with Tauri 2 + Vue 3 + TypeScript, reading MySQL 8 through
+> `sqlx`, printing prescriptions and exporting the day's ledger.
+>
+> **suradet-ps**, artifact keeper
+
+---
+
+## ◆ IGNITION
+
+One clone, one install, one command.
+
+```
+⟫ git clone https://github.com/suradet-ps/herbready.git
+⟫ cd herbready
+⟫ npm install
+⟫ npm run tauri dev
+```
+
+The release artifact: `⟫ npm run tauri build`
+
+<details>
+<summary>Prerequisites</summary>
 
 - Node.js 18+
 - Rust 1.70+
 - MySQL 8.0+
 - npm
-- Windows/macOS/Linux
+- Windows / macOS / Linux
 
-## Installation
+</details>
 
-```bash
-# Clone repository
-git clone https://github.com/suradet-ps/herbready.git
-cd herbready
+After the first launch, configure through the Settings dialog: database
+connection (host, port, database, credentials - stored encrypted), herbal
+drug settings with dosage cycles and capsule counts, department mappings,
+lab thresholds, and herb-drug interaction rules.
 
-# Install dependencies
-npm install
+---
 
-# Run development server
-npm run tauri dev
+## ◆ ANATOMY
 
-# Build for production
-npm run tauri build
+Two layers, one counter, several honest verdicts.
+
+- **Screens** - the daily queue loads with herbal medicine eligibility
+  already asked: who qualifies, who has never been dispensed, who is not
+  yet eligible. The tabs - Daily, Search, History - divide the day's
+  work without mixing it.
+- **Searches** - patients are found by name, HN, or CID, and their
+  prescription history opens beside them.
+- **Warns** - interaction rules sit between modern drugs and herbal
+  medicines, and the alert appears before the dispense, not after the
+  harm. Lab results answer to configurable thresholds, fetched from the
+  hospital's own tables.
+- **Dispenses** - drug selection, quantities, and the prescription in
+  one flow; the PDF is generated, the batch prints in one pass, and the
+  day's ledger exports to Excel for the record.
+- **Speaks** - English and Thai live side by side in the interface; the
+  patient and the pharmacist each read the language they work in.
+
+---
+
+## ◆ RITUALS
+
+**The core ceremony** - the daily counter:
+
+1. Open the Daily tab. The queue is loaded and screened: eligible,
+   never-dispensed, not-yet-eligible - each group called by its name.
+2. Search the patient by name, HN, or CID; the history opens beside
+   them.
+3. Select the herbs, set the quantities, watch the interaction alerts
+   answer. Lab thresholds have already spoken.
+4. Generate the prescription PDF, batch the prints, export the day to
+   Excel. The counter closes with the record intact.
+
+**The ceremony of the warning** - an interaction is announced before the
+prescription exists, not discovered after the patient leaves. A rule
+defined in settings is a rule the counter respects.
+
+**The ceremony of the record** - every dispense is printable and every
+day is exportable: the PDF belongs to the patient, the spreadsheet
+belongs to the pharmacy, and both are produced from the same truth.
+
+---
+
+## ◆ ECHOES
+
+**Where this artifact is heading**
+
+```
+screening ▸ daily queue with eligibility groups ───────────────────── ▸ sealed
+judgment  ▸ herb-drug alerts, lab threshold rules ──────────────────── ▸ sealed
+delivery  ▸ dispense flow, prescription PDF, batch print ───────────── ▸ sealed
+record    ▸ Excel export of daily records ──────────────────────────── ▸ sealed
+language  ▸ English + Thai interfaces ──────────────────────────────── ▸ sealed
 ```
 
-## Configuration
+**Raising the artifact** - the schema notes live in `SQL-DATABASE.md`;
+the design language in `design.md`; Thai user documentation is built
+with mdBook under `doc-th/` and deployed from the `docs.yml` workflow.
+Open an issue first to discuss a change.
 
-Configure the application via the Settings dialog:
+**Status** - documentation ships from `docs.yml`; Windows installers
+from `release-windows.yml`. [Watch the workflows](.github/workflows).
 
-1. **Database Connection** — Host, port, database name, username, password
-2. **Drug Settings** — Configure herbal medicines with dosage cycles (days) and capsule counts
-3. **Department Settings** — Map department codes for patient filtering
-4. **Lab Rules** — Set threshold values for lab result monitoring
-5. **Herb-Drug Interactions** — Define interaction rules between modern and herbal drugs
-
-## Project Structure
+---
 
 ```
-├── src/                          # Vue 3 frontend
-│   ├── components/               # Vue components
-│   │   ├── dialogs/              # Modal dialogs
-│   │   ├── DailyTab.vue          # Daily queue tab
-│   │   ├── SearchTab.vue         # Patient search tab
-│   │   ├── HistoryTab.vue        # Dispensing history tab
-│   │   └── DrugPanel.vue         # Drug selection panel
-│   ├── stores/                   # Pinia state management
-│   ├── api/                      # Tauri API wrappers
-│   ├── types/                    # TypeScript interfaces
-│   └── utils/                    # Utility functions
-├── src-tauri/                    # Rust backend
-│   ├── src/
-│   │   ├── commands.rs           # Tauri command handlers
-│   │   ├── db.rs                 # Database connection & queries
-│   │   ├── models.rs             # Data structures
-│   │   ├── queries.rs            # SQL query definitions
-│   │   ├── config.rs             # Configuration management
-│   │   └── lib.rs                # Library exports
-│   ├── Cargo.toml                # Rust dependencies
-│   └── tauri.conf.json           # Tauri configuration
-└── scripts/                      # Build & icon generation scripts
+  ─────────────────────────────────────────
+   A herb dispensed blind is a guess.
+   A herb dispensed seen is medicine.
+  ─────────────────────────────────────────
 ```
 
-## Database Schema
-
-Key tables (requires connection to hospital HIS database):
-
-- `opday` — Outpatient daily records
-- `patient` — Patient demographics
-- `opdscreen` — Vital signs and screening
-- `drugitems` — Drug master data
-- `lab_order` — Laboratory orders and results
-
-## Development Commands
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Run Vite dev server |
-| `npm run build` | Build Vue frontend |
-| `npm run tauri dev` | Run Tauri in development mode |
-| `npm run tauri build` | Build production executable |
-| `npm run gen-icons` | Generate app icons from source |
-
-## License
-
-© 2026 rxdevman. All rights reserved.
-HerbReady is released under the **MIT License**.
+HerbReady is released under the [MIT License](LICENSE).
