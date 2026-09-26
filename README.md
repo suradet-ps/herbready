@@ -1,13 +1,10 @@
 # HerbReady
 
-```
-██╗  ██╗███████╗██████╗ ██████╗ ██████╗ ███████╗ █████╗ ██████╗ ██╗   ██╗
-██║  ██║██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
-███████║█████╗  ██████╔╝██████╔╝██████╔╝█████╗  ███████║██║  ██║ ╚████╔╝
-██║  ██║██╔══╝  ██╔══██╗██╔══██╗██╔══██╗██╔══╝  ██╔══██║██║  ██║  ╚═══╝
-██║  ██║███████╗██║  ██║██████╔╝██║  ██║███████╗██║  ██║██████╔╝  ██╗
-╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝   ╚═╝
-```
+[![Deploy Documentation](https://github.com/suradet-ps/herbready/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/suradet-ps/herbready/actions/workflows/docs.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
+[![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 ---
 
